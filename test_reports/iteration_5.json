@@ -1,0 +1,41 @@
+{
+  "summary": "PathForge AI iteration 5 — Streak/Perks + Placement Simulator features tested end-to-end. Extended /app/backend/tests/test_pathforge.py with TestStreak (5 tests using fresh isolated user + direct db.checkins seeding for date progression) and TestPlacement (3 tests). Full backend suite: 70/70 PASSED in 428s. New endpoints all green: GET /api/streak (fresh=0/0/0 + next_perk=spark days_to_next=3), POST /api/checkin idempotent-per-day (total_checkins uses unique dates via set()), streak progression to 3 consecutive dates correctly unlocks 'spark' with next_perk='momentum' and days_to_next=4, 2-date gap>1 correctly resets current_streak to 0 while preserving longest=2. POST /api/ai/placement returns overall_readiness int 0-100 + tier + 1+ companies each with strengths/gaps/missing_skills/critical_actions/bar_notes + top_move + disclaimer; all returned company names strictly match the input list. Empty companies list falls back to Google/Microsoft/Amazon defaults per code. GET /api/ai/placement/latest reflects most recent POST (verified with role=ML Engineer companies=[OpenAI,Anthropic] after Software Engineer). Previously-flaky TestAIRepeated::test_generate_roadmap_four_times PASSED this run (retries=2 bump held). Frontend: all iteration-5 flows verified on public preview URL with demo.student@pathforge.ai. Dashboard renders streak-widget with streak-current=1; demo user already had check-in today so checkin-done pill visible (branch tested). Streak page renders stat-current/longest/total + all 6 perks (spark/momentum/focus/discipline/legend/singularity); streak-checkin nav back to /dashboard works. Placement page: filled pl-role='Software Engineer', added Google+Stripe via input (suggestion chips were absent because state was pre-populated from latest — the page's useEffect hydrated companies from a prior POST, so chips filter them out; used pl-company-input+pl-add-company as fallback which is a valid path), clicked pl-run, pl-overview rendered in ~40s, pl-companies contained 4 pl-company-N cards (Google, Stripe, Razorpay from persisted state + more) with correct names in card text. Regression sweep: dashboard, roadmap, skills, academics, projects, hobbies, careers, skill-gap, simulator, weekly-review all render with 0 console/page errors.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/checkin", "issue": "Endpoint inserts a new checkins row on every POST even for the same day — persistence is not idempotent at the storage layer (multiple duplicate rows accumulate per date per user). The /api/streak endpoint compensates by using set() over dates so user-facing counts stay correct, but this bloats db.checkins over time and complicates any future 'latest checkin state' query. Recommend an upsert on {user_id,date} instead of insert_one."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "PlacementSimulator", "issues": ["useEffect hydrates role+companies from GET /ai/placement/latest but there is no visible 'clear/reset' button — users returning to the page are silently locked into their previous input state and suggestion chips silently disappear because SUGGESTED.filter(s => !companies.includes(s)) hides already-selected ones. Consider a 'Start over' / 'Clear inputs' action."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_pathforge.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: switch db.checkins.insert_one -> upsert on (user_id, date) so same-day duplicate POSTs update instead of accumulate. Current streak math is still correct due to set() dedup.",
+    "OPTIONAL: add a 'Reset' / 'Clear' button on PlacementSimulator to wipe the hydrated role+companies from latest."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 918 lines — well past the 700-line split threshold. Streak+Perks and Placement blocks are cleanly bounded modules and would extract cleanly into routers/streak.py and routers/placement.py.",
+    "PERKS list is duplicated between backend (/app/backend/server.py lines 795-802) and frontend (/app/frontend/src/pages/StreakPage.jsx lines 13-20) — days/id/name/desc fields must stay in sync manually. Either expose PERKS via a GET /api/perks endpoint or use d.unlocked_perks + d.next_perk shape from the backend to render everything (StreakPage already receives unlocked_perks; the full 6-card grid could be derived from a single /api/perks fetch).",
+    "TestAIGeneration._seed class-scoped fixture still defined as instance method — same PytestRemovedIn10Warning noted last iteration; TestStreak.streak_ctx inherits the same pattern (breaks in pytest 10). Convert to @classmethod or module-scope.",
+    "/api/checkin should be idempotent per (user_id, date) — currently a fresh insert_one every call; see minor backend issue.",
+    "PlacementSimulator: no client-side dedup awareness that latest hydration may bring stale companies — see frontend design issue."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_pathforge.py (appended TestStreak with 5 tests using pymongo direct seeding of unique check-in dates, and TestPlacement with 3 tests covering primary POST + latest persistence across 2 POSTs + empty-companies default fallback)"
+  ],
+  "success_rate": {"backend": "100% (70/70)", "frontend": "100% (streak widget, streak page 6-perk grid, placement full flow with pl-overview + 4 company cards, 10-page regression sweep with 0 errors)"},
+  "test_credentials": "demo.student@pathforge.ai / PathForge@2026 (used for frontend). Backend tests self-signup fresh users; TestStreak isolates its own user for seeding.",
+  "seed_data_creation": "TestStreak created 1 fresh signup user and directly manipulated db.checkins on that user only (cleared before seed). Placement tests inserted 2 db.placements rows on the shared test user. No demo.student data was mutated. demo.student already had an existing check-in for today from a prior iteration.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All iteration-5 features (Streak+Perks widget/page and Placement Simulator) are backend + frontend verified on the public preview URL. Full 70-test backend suite is green including the previously-flaky roadmap-4x test — LLM stochasticity may still cause 1-in-N failures on regeneration paths. AI_TIMEOUT=180s is sufficient; placement LLM takes ~30-60s. TestStreak uses pymongo directly against MONGO_URL/DB_NAME env vars — works in-cluster; if next agent moves tests to run externally they may need adjustment. Note: /api/checkin is not idempotent at the row level (duplicate same-day POSTs create duplicate rows) — flagged as minor issue; streak counts stay correct via set() dedup.",
+  "rca of the issue": "No critical bugs. Two minor observations: (1) /api/checkin can accumulate duplicate rows per (user, date) — user-facing counts unaffected. (2) PlacementSimulator hydrates from latest without a reset control — cosmetic UX issue. Neither blocks iteration-5 acceptance."
+}

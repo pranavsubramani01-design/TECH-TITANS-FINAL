@@ -584,8 +584,14 @@ class CheckinIn(BaseModel):
 
 @api.post("/checkin")
 async def checkin(inp: CheckinIn, user=Depends(current_user)):
-    doc = {"id": new_id(), "user_id": user["id"], **inp.model_dump(), "date": datetime.now(timezone.utc).date().isoformat(), "ts": now_iso()}
-    await db.checkins.insert_one(doc)
+    today = datetime.now(timezone.utc).date().isoformat()
+    doc = {"id": new_id(), "user_id": user["id"], **inp.model_dump(), "date": today, "ts": now_iso()}
+    # upsert to keep one row per (user, day)
+    await db.checkins.update_one(
+        {"user_id": user["id"], "date": today},
+        {"$set": doc},
+        upsert=True,
+    )
     doc.pop("_id", None)
     return {"checkin": doc}
 
@@ -789,6 +795,116 @@ async def weekly_review_accept(inp: ReviewApplyIn, user=Depends(current_user)):
         await db.roadmaps.update_one({"user_id": user["id"]}, {"$set": {"roadmap": rm, "updated_at": now_iso()}})
     await db.weekly_reviews.update_one({"id": inp.review_id}, {"$set": {"applied": True, "applied_at": now_iso()}})
     return {"applied": applied, "roadmap": rm}
+
+
+# ---------------- Streaks & Perks ----------------
+PERKS = [
+    {"days": 3,  "id": "spark",       "name": "Spark",       "desc": "Momentum ignited. Your first micro-badge."},
+    {"days": 7,  "id": "momentum",    "name": "Momentum",    "desc": "One full week. Forge tunes tasks to your energy."},
+    {"days": 14, "id": "focus",       "name": "Focus",       "desc": "Two weeks. Priority tag unlocked for tasks."},
+    {"days": 30, "id": "discipline",  "name": "Discipline",  "desc": "A month clean. Advanced weekly analytics unlocked."},
+    {"days": 60, "id": "legend",      "name": "Legend",      "desc": "Sixty days. Forge grants the golden arc-reactor ring."},
+    {"days": 100,"id": "singularity", "name": "Singularity", "desc": "One hundred consecutive check-ins. You are the roadmap."},
+]
+
+
+def _compute_streak(dates: list[str]) -> tuple[int, int]:
+    """Return (current_streak, longest_streak). dates: sorted ISO YYYY-MM-DD strings, unique."""
+    if not dates:
+        return 0, 0
+    from datetime import date
+    ds = sorted({d for d in dates})
+    parsed = [date.fromisoformat(d) for d in ds]
+    # longest
+    longest = 1
+    run = 1
+    for i in range(1, len(parsed)):
+        if (parsed[i] - parsed[i - 1]).days == 1:
+            run += 1
+            longest = max(longest, run)
+        else:
+            run = 1
+    # current: streak ending today or yesterday
+    today = datetime.now(timezone.utc).date()
+    current = 0
+    if parsed[-1] == today or parsed[-1] == today - timedelta(days=1):
+        current = 1
+        for i in range(len(parsed) - 2, -1, -1):
+            if (parsed[i + 1] - parsed[i]).days == 1:
+                current += 1
+            else:
+                break
+    return current, longest
+
+
+@api.get("/streak")
+async def get_streak(user=Depends(current_user)):
+    rows = await db.checkins.find({"user_id": user["id"]}, {"_id": 0, "date": 1}).to_list(1000)
+    dates = [r["date"] for r in rows if r.get("date")]
+    current, longest = _compute_streak(dates)
+    unlocked = [p for p in PERKS if longest >= p["days"]]
+    next_perk = next((p for p in PERKS if longest < p["days"]), None)
+    return {
+        "current_streak": current,
+        "longest_streak": longest,
+        "total_checkins": len(set(dates)),
+        "unlocked_perks": unlocked,
+        "next_perk": next_perk,
+        "days_to_next": (next_perk["days"] - longest) if next_perk else 0,
+    }
+
+
+# ---------------- Placement Simulator ----------------
+class PlacementIn(BaseModel):
+    role: str
+    companies: List[str] = []
+
+
+@api.post("/ai/placement")
+async def placement(inp: PlacementIn, user=Depends(current_user)):
+    profile = (await db.profiles.find_one({"user_id": user["id"]}) or {}).get("data", {})
+    cp = await get_profile_dict(user["id"])
+    rm = await get_roadmap_dict(user["id"])
+    skills = await db.user_skills.find({"user_id": user["id"]}, {"_id": 0}).to_list(200)
+    acads = await db.academics.find({"user_id": user["id"]}, {"_id": 0}).to_list(200)
+    projects = await db.projects.find({"user_id": user["id"]}, {"_id": 0}).to_list(50)
+    total_cr = sum(x.get("credits", 0) for x in acads)
+    total_pts = sum(x.get("credits", 0) * x.get("grade_points", 0) for x in acads)
+    cgpa = round(total_pts / total_cr, 2) if total_cr else None
+
+    companies = [c.strip() for c in inp.companies if c.strip()] or ["Google", "Microsoft", "Amazon"]
+
+    system = (
+        "You are PathForge AI's Placement Readiness Simulator. Return STRICT JSON: "
+        "{role, overall_readiness:int 0-100, tier:'exploratory'|'developing'|'competitive'|'strong', "
+        "companies:[{name, readiness:int 0-100, verdict:'far'|'developing'|'competitive'|'strong', "
+        "strengths:[3 short strings], gaps:[3 short strings], missing_skills:[3 short strings], "
+        "critical_actions:[3 short imperative sentences], bar_notes:string (1 sentence about typical bar)}], "
+        "top_move:string (single most impactful next action, 1 sentence), disclaimer:string}. "
+        "NEVER guarantee placements. Use language like 'competitive', 'developing', 'signals suggest'. "
+        "Base scoring on skills, projects, CGPA, roadmap progression, career direction."
+    )
+    payload = {
+        "role": inp.role,
+        "companies": companies,
+        "cgpa": cgpa,
+        "profile": profile,
+        "career_direction": (cp.get("career_directions") or [{}])[0] if isinstance(cp.get("career_directions"), list) else None,
+        "roadmap_target": rm.get("target_career") if isinstance(rm, dict) else None,
+        "completed_nodes": [n.get("title") for n in (rm.get("nodes", []) if isinstance(rm, dict) else []) if n.get("status") == "completed"],
+        "skills": skills[:40],
+        "projects": [{"name": p.get("name"), "tech": p.get("tech"), "status": p.get("status")} for p in projects[:20]],
+    }
+    prompt = f"STUDENT DATA:\n{json.dumps(payload)[:5000]}\n\nGenerate placement readiness JSON now."
+    result = await llm_json(system, prompt, f"placement-{user['id']}-{int(datetime.now().timestamp())}", retries=2, require_keys=["overall_readiness", "companies", "top_move"])
+    await db.placements.insert_one({"id": new_id(), "user_id": user["id"], "input": inp.model_dump(), "result": result, "ts": now_iso()})
+    return {"placement": result}
+
+
+@api.get("/ai/placement/latest")
+async def placement_latest(user=Depends(current_user)):
+    doc = await db.placements.find_one({"user_id": user["id"]}, {"_id": 0}, sort=[("ts", -1)])
+    return {"placement": (doc or {}).get("result"), "input": (doc or {}).get("input")}
 
 
 # ---------------- register ----------------

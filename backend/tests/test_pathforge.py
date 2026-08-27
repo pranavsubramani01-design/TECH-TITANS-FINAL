@@ -514,3 +514,162 @@ class TestWeeklyReview:
                           json={"review_id": "does-not-exist"},
                           headers=auth_headers, timeout=30)
         assert r.status_code == 404
+
+
+# ---------------- Streak & Perks ----------------
+class TestStreak:
+    """Uses a fresh isolated user + direct db.checkins seeding for date progression."""
+
+    @pytest.fixture(scope="class")
+    def streak_ctx(self, base_url):
+        # Fresh user for isolated streak tests
+        email = f"streak_{uuid.uuid4().hex[:8]}@pathforge.ai"
+        r = requests.post(_url(base_url, "/api/auth/signup"),
+                          json={"full_name": "Streak User", "email": email, "password": "Passw0rd!"}, timeout=30)
+        assert r.status_code == 200
+        token = r.json()["token"]
+        user_id = r.json()["user"]["id"]
+        return {"headers": {"Authorization": f"Bearer {token}"}, "user_id": user_id, "email": email}
+
+    def test_fresh_user_zero_streak(self, base_url, streak_ctx):
+        r = requests.get(_url(base_url, "/api/streak"), headers=streak_ctx["headers"], timeout=30)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["current_streak"] == 0
+        assert d["longest_streak"] == 0
+        assert d["total_checkins"] == 0
+        assert d["unlocked_perks"] == []
+        assert d["next_perk"] is not None
+        assert d["next_perk"]["id"] == "spark"
+        assert d["next_perk"]["days"] == 3
+        assert d["days_to_next"] == 3
+
+    def test_first_checkin_streak_1(self, base_url, streak_ctx):
+        r = requests.post(_url(base_url, "/api/checkin"),
+                          json={"mood": "focused", "energy": 8, "available_minutes": 90},
+                          headers=streak_ctx["headers"], timeout=30)
+        assert r.status_code == 200
+        r2 = requests.get(_url(base_url, "/api/streak"), headers=streak_ctx["headers"], timeout=30)
+        d = r2.json()
+        assert d["current_streak"] == 1
+        assert d["longest_streak"] == 1
+        assert d["total_checkins"] == 1
+
+    def test_duplicate_checkin_same_day_idempotent(self, base_url, streak_ctx):
+        # POST again same day
+        r = requests.post(_url(base_url, "/api/checkin"),
+                          json={"mood": "focused", "energy": 7, "available_minutes": 60},
+                          headers=streak_ctx["headers"], timeout=30)
+        assert r.status_code == 200
+        r2 = requests.get(_url(base_url, "/api/streak"), headers=streak_ctx["headers"], timeout=30)
+        d = r2.json()
+        # Streak semantics counts unique dates
+        assert d["current_streak"] == 1, f"expected 1, got {d['current_streak']}"
+        assert d["longest_streak"] == 1
+        assert d["total_checkins"] == 1, f"total_checkins should be unique-date count, got {d['total_checkins']}"
+
+    def test_streak_progression_via_seeded_dates(self, base_url, streak_ctx):
+        """Seed 3 consecutive dates ending today via pymongo, verify 'spark' unlocked and next is 'momentum'."""
+        try:
+            from pymongo import MongoClient
+        except Exception:
+            pytest.skip("pymongo not available")
+        mongo_url = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
+        db_name = os.environ.get("DB_NAME", "test_database")
+        cli = MongoClient(mongo_url)
+        db = cli[db_name]
+        from datetime import datetime, timezone, timedelta, date as _date
+        # Clear any existing checkins for this fresh user
+        db.checkins.delete_many({"user_id": streak_ctx["user_id"]})
+        today = datetime.now(timezone.utc).date()
+        for i in range(3):
+            d = today - timedelta(days=(2 - i))
+            db.checkins.insert_one({
+                "id": uuid.uuid4().hex, "user_id": streak_ctx["user_id"],
+                "mood": "focused", "energy": 7, "available_minutes": 60, "notes": "",
+                "date": d.isoformat(), "ts": datetime.now(timezone.utc).isoformat(),
+            })
+        r = requests.get(_url(base_url, "/api/streak"), headers=streak_ctx["headers"], timeout=30)
+        assert r.status_code == 200
+        d = r.json()
+        assert d["current_streak"] == 3, f"expected current 3, got {d['current_streak']}"
+        assert d["longest_streak"] == 3
+        assert d["total_checkins"] == 3
+        unlocked_ids = {p["id"] for p in d["unlocked_perks"]}
+        assert "spark" in unlocked_ids, f"spark not unlocked; unlocked={unlocked_ids}"
+        assert d["next_perk"] is not None and d["next_perk"]["id"] == "momentum"
+        assert d["days_to_next"] == 7 - 3
+
+    def test_streak_reset_after_gap(self, base_url, streak_ctx):
+        """Insert a gap: last checkin 3 days ago -> current should reset to 0, longest preserved."""
+        try:
+            from pymongo import MongoClient
+        except Exception:
+            pytest.skip("pymongo not available")
+        mongo_url = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
+        db_name = os.environ.get("DB_NAME", "test_database")
+        cli = MongoClient(mongo_url)
+        db = cli[db_name]
+        from datetime import datetime, timezone, timedelta
+        db.checkins.delete_many({"user_id": streak_ctx["user_id"]})
+        today = datetime.now(timezone.utc).date()
+        # 2 consecutive dates 5-6 days ago (gap > 1 from today)
+        for offset in [6, 5]:
+            d = today - timedelta(days=offset)
+            db.checkins.insert_one({
+                "id": uuid.uuid4().hex, "user_id": streak_ctx["user_id"],
+                "mood": "focused", "energy": 7, "available_minutes": 60, "notes": "",
+                "date": d.isoformat(), "ts": datetime.now(timezone.utc).isoformat(),
+            })
+        r = requests.get(_url(base_url, "/api/streak"), headers=streak_ctx["headers"], timeout=30)
+        d = r.json()
+        assert d["current_streak"] == 0
+        assert d["longest_streak"] == 2
+        assert d["total_checkins"] == 2
+
+
+# ---------------- Placement Simulator ----------------
+class TestPlacement:
+    def test_run_placement(self, ai_base_url, auth_headers):
+        payload = {"role": "Software Engineer", "companies": ["Google", "Stripe", "Razorpay"]}
+        r = requests.post(_url(ai_base_url, "/api/ai/placement"), json=payload, headers=auth_headers, timeout=AI_TIMEOUT)
+        assert r.status_code == 200, r.text
+        p = r.json()["placement"]
+        assert isinstance(p.get("overall_readiness"), int)
+        assert 0 <= p["overall_readiness"] <= 100
+        assert p.get("tier") in {"exploratory", "developing", "competitive", "strong"}
+        assert isinstance(p.get("companies"), list) and len(p["companies"]) >= 1
+        input_names = {c.lower() for c in payload["companies"]}
+        for c in p["companies"]:
+            assert c["name"].lower() in input_names, f"company {c['name']} not in input list"
+            assert isinstance(c.get("readiness"), int)
+            for k in ["strengths", "gaps", "missing_skills", "critical_actions"]:
+                assert isinstance(c.get(k), list) and len(c[k]) >= 1, f"company {c['name']} missing {k}"
+            assert isinstance(c.get("bar_notes"), str)
+        assert isinstance(p.get("top_move"), str) and len(p["top_move"]) > 3
+        assert isinstance(p.get("disclaimer"), str)
+        STATE["placement_first"] = p
+
+    def test_latest_matches_last_post(self, ai_base_url, auth_headers):
+        # Second POST -> latest should reflect this one
+        payload = {"role": "ML Engineer", "companies": ["OpenAI", "Anthropic"]}
+        r = requests.post(_url(ai_base_url, "/api/ai/placement"), json=payload, headers=auth_headers, timeout=AI_TIMEOUT)
+        assert r.status_code == 200, r.text
+        r2 = requests.get(_url(ai_base_url, "/api/ai/placement/latest"), headers=auth_headers, timeout=30)
+        assert r2.status_code == 200
+        body = r2.json()
+        assert body["placement"] is not None
+        assert body["input"] is not None
+        assert body["input"]["role"] == "ML Engineer"
+        assert set(body["input"]["companies"]) == {"OpenAI", "Anthropic"}
+
+    def test_empty_companies_defaults(self, ai_base_url, auth_headers):
+        r = requests.post(_url(ai_base_url, "/api/ai/placement"),
+                          json={"role": "Software Engineer", "companies": []},
+                          headers=auth_headers, timeout=AI_TIMEOUT)
+        assert r.status_code == 200, r.text
+        p = r.json()["placement"]
+        assert isinstance(p.get("companies"), list) and len(p["companies"]) >= 1
+        names = {c["name"].lower() for c in p["companies"]}
+        # Should hit at least one default
+        assert names & {"google", "microsoft", "amazon"}, f"expected default companies, got {names}"

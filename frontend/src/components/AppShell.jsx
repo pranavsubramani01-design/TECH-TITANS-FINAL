@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { LayoutDashboard, Map, BarChart3, GraduationCap, Rocket, Music, Compass, Target, LogOut, Route, CalendarCheck, Ear } from "lucide-react";
+import { LayoutDashboard, Map, BarChart3, GraduationCap, Rocket, Music, Compass, Target, LogOut, Route, CalendarCheck, Ear, Briefcase, Flame } from "lucide-react";
 import { useState, useCallback } from "react";
 import ForgeDrawer from "@/components/ForgeDrawer";
 import useWakeWord from "@/hooks/useWakeWord";
@@ -16,7 +16,9 @@ const NAV = [
   { to: "/careers", label: "Careers", icon: Compass, testid: "nav-careers" },
   { to: "/skill-gap", label: "Skill Gap", icon: Target, testid: "nav-skill-gap" },
   { to: "/simulator", label: "Simulator", icon: Route, testid: "nav-simulator" },
+  { to: "/placement", label: "Placement", icon: Briefcase, testid: "nav-placement" },
   { to: "/weekly-review", label: "Weekly", icon: CalendarCheck, testid: "nav-weekly" },
+  { to: "/streak", label: "Streak", icon: Flame, testid: "nav-streak" },
 ];
 
 export default function AppShell({ children }) {

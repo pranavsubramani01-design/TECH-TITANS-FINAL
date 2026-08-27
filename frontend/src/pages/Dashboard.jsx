@@ -3,6 +3,7 @@ import api from "@/lib/api";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { RefreshCw } from "lucide-react";
+import StreakWidget from "@/components/StreakWidget";
 
 export default function Dashboard() {
   const [d, setD] = useState(null);
@@ -74,6 +75,7 @@ export default function Dashboard() {
           <div className="mono-label mb-4">// quick actions</div>
           <div className="space-y-2">
             <QuickLink to="/roadmap" title="Open Roadmap" desc="See your personalised map."/>
+            <QuickLink to="/placement" title="Placement Simulator" desc="Score readiness vs target companies."/>
             <QuickLink to="/skill-gap" title="Skill Gap" desc="What's between you and your target."/>
             <QuickLink to="/skills" title="Log a Skill" desc="Level up. Persistently."/>
             <QuickLink to="/academics" title="Log a Subject" desc="Keep your CGPA up-to-date."/>
@@ -81,6 +83,10 @@ export default function Dashboard() {
             <QuickLink to="/careers" title="Explore Careers" desc="Widen your options."/>
           </div>
         </div>
+      </section>
+
+      <section>
+        <StreakWidget/>
       </section>
     </div>
   );

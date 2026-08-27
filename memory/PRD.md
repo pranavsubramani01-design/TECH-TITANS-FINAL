@@ -62,3 +62,12 @@ See /app/memory/test_credentials.md
 - Weekly Review page /weekly-review — wins/missed/risks/next-focus + Accept-all/Customize roadmap changes with real persistence
 - Live Transcript: Forge's spoken reply is revealed word-by-word using onboundary events (falls back to timed cadence)
 - Hardening: bumped generate-roadmap llm_json retries to 2; tightened weekly-review accept status allowlist
+
+## Iteration 5 — Placement + Streak Rewards — 2026-02
+- Placement Simulator (/placement): estimates readiness per company (score, verdict, strengths, gaps, missing skills, critical actions, bar notes) + overall + top move
+- Streak Rewards: /api/streak computes current/longest/total from unique check-in dates; 6-tier perk system (Spark 3d → Singularity 100d)
+- Dashboard streak widget with inline one-tap check-in form
+- Streak page /streak with 3 stat blocks, next-perk progress bar, 6-card perks grid
+- /api/checkin is now idempotent per (user, date) via upsert
+- Placement Simulator "Reset" button clears hydrated inputs
+- 70/70 backend tests green
