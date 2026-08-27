@@ -74,7 +74,7 @@ export default function RoadmapPage() {
       }
       toast.success(isFounder ? "Founder track generated" : "Roadmap generated");
     }
-    catch { toast.error("Generation failed"); }
+    catch (e) { toast.error(e?.response?.data?.detail || "Generation failed"); }
     finally { setGen(false); }
   };
 

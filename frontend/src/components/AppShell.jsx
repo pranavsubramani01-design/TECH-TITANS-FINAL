@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { LayoutDashboard, Map, BarChart3, GraduationCap, Rocket, Music, Compass, Target, LogOut, Route, CalendarCheck, Ear, Briefcase, Flame, FileText, Search } from "lucide-react";
+import { LayoutDashboard, Map, BarChart3, GraduationCap, Rocket, Music, Compass, Target, LogOut, Route, CalendarCheck, Ear, Briefcase, Flame, FileText, Search, Users } from "lucide-react";
 import { useState, useCallback, useEffect } from "react";
 import ForgeDrawer from "@/components/ForgeDrawer";
 import CommandPalette from "@/components/CommandPalette";
@@ -22,6 +22,7 @@ const NAV = [
   { to: "/streak", label: "Streak", icon: Flame, testid: "nav-streak" },
   { to: "/resume", label: "Resume", icon: FileText, testid: "nav-resume" },
   { to: "/founder", label: "Founder", icon: Rocket, testid: "nav-founder" },
+  { to: "/alumni", label: "Alumni", icon: Users, testid: "nav-alumni" },
 ];
 
 export default function AppShell({ children }) {

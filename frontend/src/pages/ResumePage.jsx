@@ -26,7 +26,7 @@ export default function ResumePage() {
       const { data } = await api.post("/resume/generate");
       setResume(data.resume); setEdit(false);
       toast.success("Resume tailored from your real data");
-    } catch { toast.error("Generation failed"); }
+    } catch (e) { toast.error(e?.response?.data?.detail || "Generation failed"); }
     finally { setBusy(false); }
   };
 

@@ -23,6 +23,7 @@ import PlacementSimulator from "@/pages/PlacementSimulator";
 import StreakPage from "@/pages/StreakPage";
 import ResumePage from "@/pages/ResumePage";
 import FounderPage from "@/pages/FounderPage";
+import AlumniPage from "@/pages/AlumniPage";
 import AppShell from "@/components/AppShell";
 
 function Private({ children }) {
@@ -66,6 +67,7 @@ export default function App() {
           <Route path="/streak" element={<Private><StreakPage /></Private>} />
           <Route path="/resume" element={<Private><ResumePage /></Private>} />
           <Route path="/founder" element={<Private><FounderPage /></Private>} />
+          <Route path="/alumni" element={<Private><AlumniPage /></Private>} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </BrowserRouter>

@@ -68,8 +68,14 @@ See /app/memory/test_credentials.md
 - Post-test fixes: search now filters all nodes before slicing to 6; ForgeDrawer history load no longer overwrites a message sent via search hand-off.
 - Known infra note: Emergent LLM key budget was exhausted during testing — live AI calls 500 until topped up (Profile → Manage plan → Universal Key → Add Balance).
 
-## Backlog / next
-- P1: Alumni intelligence (database, matching, trajectories, alumni roadmap view)
+## Iteration 7 — Alumni Intelligence — 2026-06 (BUILT, AI VERIFICATION BLOCKED)
+- User choices: AI-generated synthetic cohort only (labelled "AI-modelled, not a real person"), ~30 alumni, role-first (any college), no alumnus persona chat.
+- Backend: `POST /api/alumni/seed` (3 parallel LLM batches × 10 across role clusters, idempotent unless `force=true`), `GET /api/alumni` (q + role/company/path_type/branch filters + facets), `GET /api/alumni/{id}`, `GET /api/alumni/matches` (deterministic Python scoring: target-role match 40, same branch 18, CGPA band 20, skill overlap ≤18 → top 6 with human-readable match reasons), `POST /api/alumni/{id}/compare` (LLM trajectory overlay: same_point / ahead / behind / 3 missing_moves / adapted_advice / verdict), `GET /api/alumni/{id}/compare` (cached).
+- Frontend `/alumni` (`AlumniPage.jsx`): "Your closest mirrors" match cards with scores + reasons, filterable directory, detail drawer with year-by-year trajectory (did/skills/milestone), breakthrough, offer note, mistakes, advice, skills-at-offer, and the overlay panel. Alumni also indexed in the ⌘K palette and the PAGES list.
+- Hardening: `llm_json`/`llm_text` now wrap provider errors — budget exhaustion returns a clean **503 with a top-up message** instead of a raw 500/502 Cloudflare page; AI pages surface `detail` in the toast.
+- **BLOCKED**: the Emergent LLM key budget is exhausted, so the cohort could not be generated or verified end-to-end. Non-AI paths verified (list/facets/matches return 200 with empty cohort; page renders empty state). Re-run "BUILD ALUMNI COHORT" after topping up.
+
+- P1: Alumni intelligence (database, matching, trajectories, alumni roadmap view) — BUILT in iteration 7, needs AI verification after key top-up
 - P1: Career Explorer depth (per-career roadmaps + market insights, currently a browse list)
 - P2: Admin dashboard, notifications, streaming AI, resume variants per company
 - P2 (tech debt): server.py is ~1330 lines — split into routers/{search,resume,founder}.py

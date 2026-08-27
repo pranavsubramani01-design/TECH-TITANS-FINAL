@@ -152,6 +152,19 @@ async def save_onboarding(inp: OnboardingIn, user=Depends(current_user)):
     return {"ok": True, "data": data}
 
 
+AI_BUDGET_MSG = "AI unavailable — your Emergent LLM key budget is exhausted. Top up: Profile → Manage plan → Universal Key → Add Balance."
+
+
+def _ai_error(ex: Exception) -> HTTPException:
+    msg = str(ex)
+    if "Budget has been exceeded" in msg or "budget" in msg.lower():
+        return HTTPException(503, AI_BUDGET_MSG)
+    if "RateLimit" in msg or "rate limit" in msg.lower():
+        return HTTPException(503, "AI provider rate-limited the request. Try again in a moment.")
+    log.error(f"LLM call failed: {msg[:400]}")
+    return HTTPException(503, "AI service temporarily unavailable")
+
+
 # ---------------- LLM helper ----------------
 async def llm_json(system: str, user_prompt: str, session_id: str, retries: int = 1, require_keys: Optional[List[str]] = None) -> dict:
     """Ask Claude for JSON and return dict. Uses json-repair + retry on failure or bad shape."""
@@ -164,7 +177,10 @@ async def llm_json(system: str, user_prompt: str, session_id: str, retries: int 
             session_id=f"{session_id}-{attempt}",
             system_message=system + "\n\nReply with ONE minified JSON OBJECT only (starts with { and ends with }). No markdown, no prose. Escape all quotes/newlines inside strings.",
         ).with_model("anthropic", "claude-sonnet-4-6")
-        resp = await chat.send_message(UserMessage(text=user_prompt))
+        try:
+            resp = await chat.send_message(UserMessage(text=user_prompt))
+        except Exception as ex:
+            raise _ai_error(ex)
         text = resp if isinstance(resp, str) else str(resp)
         last_text = text
         # strip code fences
@@ -203,7 +219,10 @@ async def llm_text(system: str, user_prompt: str, session_id: str) -> str:
         session_id=session_id,
         system_message=system,
     ).with_model("anthropic", "claude-sonnet-4-6")
-    resp = await chat.send_message(UserMessage(text=user_prompt))
+    try:
+        resp = await chat.send_message(UserMessage(text=user_prompt))
+    except Exception as ex:
+        raise _ai_error(ex)
     return resp if isinstance(resp, str) else str(resp)
 
 
@@ -956,13 +975,14 @@ PAGES = [
     {"label": "Streak", "to": "/streak", "hint": "Check-in streak & perks"},
     {"label": "Resume Builder", "to": "/resume", "hint": "AI tailored one-page resume"},
     {"label": "Founder Track", "to": "/founder", "hint": "Startup roadmap + validation log"},
+    {"label": "Alumni Intelligence", "to": "/alumni", "hint": "Seniors who landed your target role"},
 ]
 
 
 @api.get("/search")
 async def global_search(q: str = "", user=Depends(current_user)):
     ql = q.strip().lower()
-    out: Dict[str, List[dict]] = {"pages": [], "roadmap": [], "founder": [], "skills": [], "projects": [], "careers": [], "companies": []}
+    out: Dict[str, List[dict]] = {"pages": [], "roadmap": [], "founder": [], "skills": [], "projects": [], "careers": [], "companies": [], "alumni": []}
     if not ql:
         out["pages"] = [{"title": p["label"], "subtitle": p["hint"], "to": p["to"]} for p in PAGES]
         return {"query": q, "results": out, "count": len(out["pages"]), "ask_forge": False}
@@ -992,6 +1012,10 @@ async def global_search(q: str = "", user=Depends(current_user)):
 
     out["careers"] = [{"title": c["name"], "subtitle": c["summary"][:80], "to": "/careers"} for c in CAREERS if hit(c["name"], c["summary"], " ".join(c["skills"]))][:6]
     out["companies"] = [{"title": c["name"], "subtitle": " · ".join(c["tags"]), "to": "/placement"} for c in COMPANIES if hit(c["name"], " ".join(c["tags"]))][:6]
+
+    rx = {"$regex": re.escape(ql), "$options": "i"}
+    alumni = await db.alumni.find({"$or": [{"name": rx}, {"role": rx}, {"company": rx}, {"college": rx}, {"branch": rx}, {"final_skills": rx}]}, {"_id": 0}).to_list(20)
+    out["alumni"] = [{"title": a.get("name"), "subtitle": f"{a.get('role','')} @ {a.get('company','')} · {a.get('batch','')}", "to": "/alumni"} for a in alumni][:6]
 
     count = sum(len(v) for v in out.values())
     return {"query": q, "results": out, "count": count, "ask_forge": count == 0}
@@ -1307,6 +1331,217 @@ async def founder_insights_latest(user=Depends(current_user)):
     doc = await db.founder_insights.find_one({"user_id": user["id"]}, {"_id": 0}) or {}
     ins = doc.get("insights")
     return {"insights": ins if isinstance(ins, dict) else None, "ts": doc.get("ts")}
+
+
+# ---------------- Alumni Intelligence ----------------
+ALUMNI_CLUSTERS = [
+    ["Software Engineer", "ML Engineer", "Data Scientist", "Cybersecurity Engineer"],
+    ["Product Manager", "UX/Product Designer", "Consultant", "Finance / Quant"],
+    ["VLSI Engineer", "Core Engineer", "Researcher", "Entrepreneur"],
+]
+
+ALUMNI_SYSTEM = (
+    "You are PathForge AI's Alumni Trajectory Modeller. You generate REALISTIC but SYNTHETIC engineering-graduate "
+    "career trajectories used to teach students what a path actually looks like. Return STRICT JSON: "
+    "{alumni:[10 items]} where each item is "
+    "{id (unique kebab-case slug), name (plausible Indian full name), college, college_tier ('IIT/NIT'|'Tier-1 private'|'Tier-2'|'Tier-3'), "
+    "branch, batch (int graduation year between 2018 and 2025), role, company, path_type ('on-campus'|'off-campus'|'higher-studies'|'startup'|'research'), "
+    "cgpa (float 5.8-9.6), starting_point (1 sentence about where they stood in year 1 — many should start weak), "
+    "final_skills (array of 5-7 short strings), "
+    "trajectory (array of exactly 4 items: {year (int 1-4), headline (short), did (array of 3 short concrete actions), "
+    "skills (array of max 3 short strings), milestone (1 short sentence)}), "
+    "breakthrough (1 sentence — the single moment things changed), "
+    "mistakes (array of 2 short 'what I would undo' strings), "
+    "advice (array of 3 short imperative sentences), "
+    "offer_note (1 short sentence about how the offer actually happened)}. "
+    "Vary outcomes honestly: include late bloomers, average CGPAs, off-campus grinds, service-company-to-product jumps, "
+    "one failed startup, one higher-studies route. Do NOT make everyone a FAANG story. Do not use real living people's names of public figures. "
+    "Keep every string under 130 chars, no newlines inside strings."
+)
+
+
+async def _gen_alumni_batch(roles: List[str], idx: int) -> List[dict]:
+    prompt = (
+        f"Generate 10 synthetic alumni whose current roles are drawn from: {', '.join(roles)}. "
+        "Spread them across different colleges, tiers, branches and batches. Return the JSON now."
+    )
+    data = await llm_json(ALUMNI_SYSTEM, prompt, f"alumni-seed-{idx}-{int(datetime.now().timestamp())}", retries=2, require_keys=["alumni"])
+    items = data.get("alumni")
+    return items if isinstance(items, list) else []
+
+
+@api.post("/alumni/seed")
+async def alumni_seed(force: bool = False, user=Depends(current_user)):
+    existing = await db.alumni.count_documents({})
+    if existing >= 20 and not force:
+        return {"seeded": 0, "total": existing}
+    import asyncio
+    batches = await asyncio.gather(*[_gen_alumni_batch(r, i) for i, r in enumerate(ALUMNI_CLUSTERS)], return_exceptions=True)
+    docs = []
+    seen = set()
+    first_error: Optional[Exception] = None
+    for b in batches:
+        if isinstance(b, Exception):
+            log.warning(f"alumni batch failed: {b}")
+            first_error = first_error or b
+            continue
+        for a in b:
+            if not isinstance(a, dict) or not a.get("name"):
+                continue
+            aid = str(a.get("id") or "").strip() or new_id()
+            if aid in seen:
+                aid = f"{aid}-{new_id()[:4]}"
+            seen.add(aid)
+            a["id"] = aid
+            a["synthetic"] = True
+            a["created_at"] = now_iso()
+            docs.append(a)
+    if not docs:
+        if isinstance(first_error, HTTPException):
+            raise first_error
+        raise HTTPException(503, "Alumni generation failed — AI service unavailable")
+    if force:
+        await db.alumni.delete_many({})
+    for d in docs:
+        await db.alumni.update_one({"id": d["id"]}, {"$set": d}, upsert=True)
+    total = await db.alumni.count_documents({})
+    return {"seeded": len(docs), "total": total}
+
+
+@api.get("/alumni")
+async def alumni_list(q: str = "", role: str = "", company: str = "", path_type: str = "", branch: str = "", user=Depends(current_user)):
+    query: Dict[str, Any] = {}
+    for field, val in [("role", role), ("company", company), ("path_type", path_type), ("branch", branch)]:
+        if val:
+            query[field] = {"$regex": re.escape(val), "$options": "i"}
+    if q.strip():
+        rx = {"$regex": re.escape(q.strip()), "$options": "i"}
+        query["$or"] = [{"name": rx}, {"role": rx}, {"company": rx}, {"college": rx}, {"branch": rx}, {"final_skills": rx}]
+    items = await db.alumni.find(query, {"_id": 0}).to_list(200)
+    items.sort(key=lambda a: (-int(a.get("batch") or 0), a.get("name") or ""))
+    all_items = await db.alumni.find({}, {"_id": 0, "role": 1, "company": 1, "path_type": 1, "branch": 1}).to_list(300)
+    facets = {
+        "roles": sorted({a.get("role") for a in all_items if a.get("role")}),
+        "companies": sorted({a.get("company") for a in all_items if a.get("company")}),
+        "path_types": sorted({a.get("path_type") for a in all_items if a.get("path_type")}),
+        "branches": sorted({a.get("branch") for a in all_items if a.get("branch")}),
+    }
+    return {"alumni": items, "total": len(all_items), "facets": facets}
+
+
+@api.get("/alumni/matches")
+async def alumni_matches(user=Depends(current_user)):
+    pdata = (await db.profiles.find_one({"user_id": user["id"]}) or {}).get("data", {})
+    cp = await get_profile_dict(user["id"])
+    rm = await get_roadmap_dict(user["id"])
+    skills = await db.user_skills.find({"user_id": user["id"]}, {"_id": 0}).to_list(300)
+    acads = await db.academics.find({"user_id": user["id"]}, {"_id": 0}).to_list(300)
+    total_cr = sum(x.get("credits", 0) for x in acads)
+    total_pts = sum(x.get("credits", 0) * x.get("grade_points", 0) for x in acads)
+    cgpa = round(total_pts / total_cr, 2) if total_cr else None
+
+    dirs = cp.get("career_directions") if isinstance(cp.get("career_directions"), list) else []
+    target = (dirs[0].get("name") if dirs else None) or (rm.get("target_career") if isinstance(rm, dict) else None) or ""
+    my_branch = str(pdata.get("branch") or "").lower()
+    my_skills = {str(s.get("name", "")).lower() for s in skills} | {str(x).lower() for x in (pdata.get("current_skills") or [])}
+
+    alumni = await db.alumni.find({}, {"_id": 0}).to_list(300)
+    scored = []
+    for a in alumni:
+        score, reasons = 0, []
+        role = str(a.get("role") or "")
+        if target and (target.lower() in role.lower() or role.lower() in target.lower()):
+            score += 40
+            reasons.append(f"Landed the exact role you're aiming for ({role})")
+        elif target and set(target.lower().split()) & set(role.lower().split()):
+            score += 22
+            reasons.append(f"Adjacent role to your target ({role})")
+        if my_branch and my_branch in str(a.get("branch") or "").lower():
+            score += 18
+            reasons.append(f"Same branch ({a.get('branch')})")
+        a_cgpa = a.get("cgpa")
+        if cgpa and isinstance(a_cgpa, (int, float)):
+            delta = abs(float(a_cgpa) - cgpa)
+            if delta <= 0.4:
+                score += 20
+                reasons.append(f"Almost identical CGPA band ({a_cgpa} vs your {cgpa})")
+            elif delta <= 0.9:
+                score += 12
+                reasons.append(f"Similar CGPA band ({a_cgpa} vs your {cgpa})")
+        a_skills = {str(x).lower() for x in (a.get("final_skills") or [])}
+        overlap = my_skills & a_skills
+        if overlap:
+            score += min(18, 6 * len(overlap))
+            reasons.append("Shares your current skills: " + ", ".join(sorted(overlap)[:3]))
+        if a.get("path_type") in ("off-campus", "on-campus"):
+            score += 4
+        if not reasons:
+            reasons.append("Different starting point — useful as a contrast path")
+        scored.append({**a, "match_score": min(99, score), "match_reasons": reasons[:3]})
+
+    scored.sort(key=lambda x: -x["match_score"])
+    return {"matches": scored[:6], "you": {"target": target, "cgpa": cgpa, "branch": pdata.get("branch"), "skills": sorted(my_skills)[:20]}}
+
+
+@api.get("/alumni/{aid}")
+async def alumni_get(aid: str, user=Depends(current_user)):
+    a = await db.alumni.find_one({"id": aid}, {"_id": 0})
+    if not a:
+        raise HTTPException(404, "Alumnus not found")
+    return {"alumnus": a}
+
+
+@api.post("/alumni/{aid}/compare")
+async def alumni_compare(aid: str, user=Depends(current_user)):
+    a = await db.alumni.find_one({"id": aid}, {"_id": 0})
+    if not a:
+        raise HTTPException(404, "Alumnus not found")
+    pdata = (await db.profiles.find_one({"user_id": user["id"]}) or {}).get("data", {})
+    rm = await get_roadmap_dict(user["id"])
+    skills = await db.user_skills.find({"user_id": user["id"]}, {"_id": 0}).to_list(300)
+    projects = await db.projects.find({"user_id": user["id"]}, {"_id": 0}).to_list(60)
+    acads = await db.academics.find({"user_id": user["id"]}, {"_id": 0}).to_list(300)
+    total_cr = sum(x.get("credits", 0) for x in acads)
+    total_pts = sum(x.get("credits", 0) * x.get("grade_points", 0) for x in acads)
+    cgpa = round(total_pts / total_cr, 2) if total_cr else None
+
+    system = (
+        "You are PathForge AI's Trajectory Overlay engine. Compare a student's CURRENT position against a modelled "
+        "alumnus trajectory at the SAME point in time (same year of study). Return STRICT JSON: "
+        "{same_point (1 sentence describing where the alumnus stood in the student's current year), "
+        "ahead (array of max 3 short strings — where the student is genuinely ahead), "
+        "behind (array of max 3 short strings — where the student is behind), "
+        "missing_moves (array of exactly 3 {move, why, when} — moves the alumnus made that the student has not, 'when' is a short timing hint), "
+        "adapted_advice (array of 3 short imperative sentences rewritten for THIS student's reality), "
+        "verdict (1 honest sentence), disclaimer (string noting the alumnus path is AI-modelled, not a real person)}. "
+        "Be specific and honest. Do not flatter. Never claim the alumnus is a real person."
+    )
+    payload = {
+        "student": {
+            "year": pdata.get("year"), "branch": pdata.get("branch"), "college": pdata.get("college"),
+            "cgpa": cgpa, "skills": [s.get("name") for s in skills][:30],
+            "projects": [p.get("name") for p in projects][:15],
+            "roadmap_target": rm.get("target_career") if isinstance(rm, dict) else None,
+            "completed_nodes": [n.get("title") for n in (rm.get("nodes", []) if isinstance(rm, dict) else []) if n.get("status") == "completed"][:20],
+            "time_available": pdata.get("time_available") or pdata.get("weekly_hours"),
+        },
+        "alumnus": a,
+    }
+    prompt = f"DATA:\n{json.dumps(payload, default=str)[:6000]}\n\nGenerate the overlay JSON now."
+    result = await llm_json(system, prompt, f"alumni-compare-{user['id']}-{aid}-{int(datetime.now().timestamp())}", retries=2, require_keys=["ahead", "behind", "missing_moves"])
+    await db.alumni_compares.update_one(
+        {"user_id": user["id"], "alumni_id": aid},
+        {"$set": {"user_id": user["id"], "alumni_id": aid, "compare": result, "ts": now_iso()}},
+        upsert=True,
+    )
+    return {"compare": result, "alumnus": {"id": a["id"], "name": a.get("name"), "role": a.get("role"), "company": a.get("company")}}
+
+
+@api.get("/alumni/{aid}/compare")
+async def alumni_compare_latest(aid: str, user=Depends(current_user)):
+    doc = await db.alumni_compares.find_one({"user_id": user["id"], "alumni_id": aid}, {"_id": 0}) or {}
+    c = doc.get("compare")
+    return {"compare": c if isinstance(c, dict) else None, "ts": doc.get("ts")}
 
 
 # ---------------- register ----------------

@@ -52,7 +52,7 @@ export default function FounderPage() {
     try {
       const { data } = await api.post("/ai/generate-founder-roadmap", { idea: idea.trim(), horizon_months: 12 });
       setRm(data.roadmap); toast.success("Founder track built");
-    } catch { toast.error("Generation failed"); }
+    } catch { toast.error("Founder track generation failed — check your AI key balance"); }
     finally { setGen(false); }
   };
 

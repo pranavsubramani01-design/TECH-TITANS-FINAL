@@ -5,7 +5,7 @@ import { Search, CornerDownLeft, Sparkles } from "lucide-react";
 
 const GROUP_LABEL = {
   pages: "PAGES", roadmap: "ROADMAP NODES", founder: "FOUNDER TRACK",
-  skills: "SKILLS", projects: "PROJECTS", careers: "CAREERS", companies: "COMPANIES",
+  skills: "SKILLS", projects: "PROJECTS", careers: "CAREERS", companies: "COMPANIES", alumni: "ALUMNI",
 };
 
 export default function CommandPalette({ open, onClose, onAskForge }) {
