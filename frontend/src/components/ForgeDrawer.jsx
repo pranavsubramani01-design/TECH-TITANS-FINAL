@@ -19,7 +19,7 @@ function pickVoice() {
   return voices.find((v) => v.lang?.startsWith("en")) || voices[0] || null;
 }
 
-export default function ForgeDrawer({ open, onClose }) {
+export default function ForgeDrawer({ open, onClose, autoStartVoice = false }) {
   const [msgs, setMsgs] = useState([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -28,6 +28,7 @@ export default function ForgeDrawer({ open, onClose }) {
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [level, setLevel] = useState(0);           // 0..1 mic input volume for animation
+  const [liveTranscript, setLiveTranscript] = useState(""); // words as Forge speaks
   const bottom = useRef(null);
   const recogRef = useRef(null);
   const audioCtxRef = useRef(null);
@@ -102,9 +103,30 @@ export default function ForgeDrawer({ open, onClose }) {
       const v = pickVoice();
       if (v) u.voice = v;
       u.rate = 1.02; u.pitch = 0.9;
-      u.onstart = () => setSpeaking(true);
-      u.onend = () => setSpeaking(false);
-      u.onerror = () => setSpeaking(false);
+      // live transcript: reveal spoken words as they're spoken
+      const words = text.split(/(\s+)/); // keep whitespace tokens
+      let idx = 0;
+      setLiveTranscript("");
+      let interval = null;
+      const startReveal = () => {
+        // estimate reveal cadence from utterance rate; ~4 words/sec at rate 1
+        const stepMs = Math.max(80, 260 / (u.rate || 1));
+        interval = setInterval(() => {
+          idx++;
+          if (idx > words.length) { clearInterval(interval); return; }
+          setLiveTranscript(words.slice(0, idx).join(""));
+        }, stepMs);
+      };
+      u.onstart = () => { setSpeaking(true); startReveal(); };
+      u.onboundary = (ev) => {
+        // resync when we get real word boundaries
+        if (ev.name === "word") {
+          const char = ev.charIndex || 0;
+          setLiveTranscript(text.slice(0, char + (ev.charLength || 6)));
+        }
+      };
+      u.onend = () => { setSpeaking(false); if (interval) clearInterval(interval); setLiveTranscript(text); setTimeout(() => setLiveTranscript(""), 2500); };
+      u.onerror = () => { setSpeaking(false); if (interval) clearInterval(interval); setLiveTranscript(""); };
       synth.speak(u);
     } catch {}
   }, [voiceOn]);
@@ -164,6 +186,16 @@ export default function ForgeDrawer({ open, onClose }) {
     }
   }, [open, stopMicViz]);
 
+  // wake-word auto-start: when opened via "Hey Forge", flip voice on + start listening
+  useEffect(() => {
+    if (open && autoStartVoice) {
+      setVoiceOn(true);
+      const t = setTimeout(() => { if (!listening) toggleListening(); }, 350);
+      return () => clearTimeout(t);
+    }
+    // eslint-disable-next-line
+  }, [open, autoStartVoice]);
+
   if (!open) return null;
 
   // build reactor scale/glow from mic level + speaking state
@@ -203,7 +235,7 @@ export default function ForgeDrawer({ open, onClose }) {
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {msgs.length === 0 && (
             <div className="text-neutral-500 text-sm">
-              Ask Forge anything. Tap <Mic className="inline w-3 h-3"/> to speak, <Volume2 className="inline w-3 h-3"/> to hear replies.
+              Ask Forge anything. Tap <Mic className="inline w-3 h-3"/> to speak, <Volume2 className="inline w-3 h-3"/> to hear replies. Say "Hey Forge" from anywhere.
             </div>
           )}
           {msgs.map((m, i) => (
@@ -212,6 +244,12 @@ export default function ForgeDrawer({ open, onClose }) {
             </div>
           ))}
           {busy && <div className="text-neutral-500 font-mono-ui text-xs animate-pulse">FORGE IS THINKING...</div>}
+          {speaking && liveTranscript && (
+            <div className="sticky bottom-0 -mx-4 px-4 py-3 border-t border-white/10 bg-black/95 backdrop-blur-md" data-testid="forge-live-transcript">
+              <div className="mono-label mb-1 text-neutral-500 flex items-center gap-1"><Volume2 className="w-3 h-3"/> SPEAKING</div>
+              <div className="font-mono-ui text-sm text-white/95">{liveTranscript}<span className="inline-block w-1.5 h-3 bg-white/80 ml-0.5 align-middle animate-pulse"/></div>
+            </div>
+          )}
           <div ref={bottom}/>
         </div>
         <div className="p-4 border-t border-white/10 flex gap-2 items-center">

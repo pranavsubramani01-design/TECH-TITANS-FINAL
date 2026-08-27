@@ -17,6 +17,8 @@ import ProjectsPage from "@/pages/ProjectsPage";
 import HobbiesPage from "@/pages/HobbiesPage";
 import CareerExplorer from "@/pages/CareerExplorer";
 import SkillGapPage from "@/pages/SkillGapPage";
+import CareerSimulator from "@/pages/CareerSimulator";
+import WeeklyReview from "@/pages/WeeklyReview";
 import AppShell from "@/components/AppShell";
 
 function Private({ children }) {
@@ -54,6 +56,8 @@ export default function App() {
           <Route path="/hobbies" element={<Private><HobbiesPage /></Private>} />
           <Route path="/careers" element={<Private><CareerExplorer /></Private>} />
           <Route path="/skill-gap" element={<Private><SkillGapPage /></Private>} />
+          <Route path="/simulator" element={<Private><CareerSimulator /></Private>} />
+          <Route path="/weekly-review" element={<Private><WeeklyReview /></Private>} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </BrowserRouter>

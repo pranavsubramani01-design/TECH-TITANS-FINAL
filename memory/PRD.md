@@ -55,3 +55,10 @@ See /app/memory/test_credentials.md
 - get_roadmap_dict/get_profile_dict coerce all reader endpoints to dict — no more 500s on poisoned docs
 - Timestamp-suffixed session_id per generate-roadmap call prevents Claude conversation drift
 - 56/56 backend tests green (was 53/56)
+
+## Iteration 4 — Jarvis becomes real — 2026-02
+- Wake word: sidebar toggle ("Hey Forge") activates persistent SpeechRecognition; saying "hey/hi/ok forge" opens the drawer & auto-starts voice input
+- Career Simulator page /simulator — generates 3 personalized routes to any target role with steps/skills/milestones/effort/risks + honest caveats
+- Weekly Review page /weekly-review — wins/missed/risks/next-focus + Accept-all/Customize roadmap changes with real persistence
+- Live Transcript: Forge's spoken reply is revealed word-by-word using onboundary events (falls back to timed cadence)
+- Hardening: bumped generate-roadmap llm_json retries to 2; tightened weekly-review accept status allowlist

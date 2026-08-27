@@ -316,7 +316,7 @@ async def generate_roadmap(user=Depends(current_user)):
         f"CAREER PROFILE: {json.dumps(cp_data)[:1500]}\n\n"
         "Generate the personalized roadmap JSON now."
     )
-    result = await llm_json(system, prompt, f"roadmap-{user['id']}-{int(datetime.now().timestamp())}", require_keys=["target_career", "years", "nodes"])
+    result = await llm_json(system, prompt, f"roadmap-{user['id']}-{int(datetime.now().timestamp())}", retries=2, require_keys=["target_career", "years", "nodes"])
     await db.roadmaps.update_one(
         {"user_id": user["id"]},
         {"$set": {"user_id": user["id"], "roadmap": result, "generated_at": now_iso()}},
@@ -680,6 +680,115 @@ async def dashboard(user=Depends(current_user)):
         "nodes_completed": completed,
         "nodes_total": total_nodes,
     }
+
+
+# ---------------- Career Goal Simulator ----------------
+class SimulatorIn(BaseModel):
+    target_role: str
+    industry: Optional[str] = ""
+    salary_band: Optional[str] = ""
+    location: Optional[str] = ""
+    higher_studies: Optional[str] = ""  # 'yes'|'no'|'maybe'
+    startup_or_job: Optional[str] = ""  # 'startup'|'job'|'either'
+
+
+@api.post("/ai/simulator")
+async def simulator(inp: SimulatorIn, user=Depends(current_user)):
+    profile = (await db.profiles.find_one({"user_id": user["id"]}) or {}).get("data", {})
+    cp = await get_profile_dict(user["id"])
+    system = (
+        "You are PathForge AI's Career Goal Simulator. Produce STRICT JSON: "
+        "{target_role, industry, routes:[3 items each {name, tagline, steps:[5-7 short strings], skills:[5 short strings], "
+        "effort:'Low'|'Medium'|'High'|'Very High', duration:'e.g. 2-3 years', milestones:[3-4 short], risks:[2-3 short], "
+        "alternatives:[2 short]}], caveats: array of 2-3 sentences}. "
+        "NEVER guarantee salary or placement. Use language like 'possible trajectory', 'competitive pathway'. "
+        "Personalize with the student's branch, current skills, and priorities."
+    )
+    prompt = (
+        f"STUDENT: {json.dumps(profile)[:2200]}\nCAREER PROFILE: {json.dumps(cp)[:900]}\n"
+        f"TARGET: {json.dumps(inp.model_dump())}\n\nGenerate three distinct routes."
+    )
+    result = await llm_json(system, prompt, f"sim-{user['id']}-{int(datetime.now().timestamp())}", require_keys=["routes"])
+    await db.simulations.insert_one({"id": new_id(), "user_id": user["id"], "input": inp.model_dump(), "result": result, "ts": now_iso()})
+    return {"simulation": result}
+
+
+@api.get("/ai/simulator/history")
+async def simulator_history(user=Depends(current_user)):
+    items = await db.simulations.find({"user_id": user["id"]}, {"_id": 0}).sort("ts", -1).to_list(10)
+    return {"simulations": items}
+
+
+# ---------------- Weekly Review ----------------
+@api.post("/ai/weekly-review")
+async def weekly_review(user=Depends(current_user)):
+    profile = (await db.profiles.find_one({"user_id": user["id"]}) or {}).get("data", {})
+    cp = await get_profile_dict(user["id"])
+    rm = await get_roadmap_dict(user["id"])
+    skills = await db.user_skills.find({"user_id": user["id"]}, {"_id": 0}).to_list(200)
+    week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    checkins = await db.checkins.find({"user_id": user["id"], "ts": {"$gte": week_ago}}, {"_id": 0}).to_list(20)
+    plans = await db.daily_plans.find({"user_id": user["id"], "generated_at": {"$gte": week_ago}}, {"_id": 0}).to_list(14)
+    nodes = rm.get("nodes", []) if isinstance(rm, dict) else []
+    completed = [n for n in nodes if n.get("status") == "completed"]
+    in_prog = [n for n in nodes if n.get("status") == "in_progress"]
+
+    system = (
+        "You are PathForge AI's Weekly Reviewer. Analyze the student's last 7 days and produce STRICT JSON: "
+        "{summary:string (2 sentences), wins:[3-5 short strings], missed:[2-4 short strings], risks:[2-3 short strings], "
+        "adjustments:[2-4 short strings], next_week_focus:[3-4 short strings], "
+        "roadmap_changes:[array of {node_id:string (must match an existing node id from roadmap), new_status:'available'|'recommended'|'in_progress'|'locked', reason:string (1 sentence why)}]}. "
+        "Only propose roadmap_changes when they are clearly justified. Never fabricate node ids."
+    )
+    prompt = (
+        f"CAREER TARGET: {rm.get('target_career', 'undecided')}\n"
+        f"ROADMAP NODES (first 20): {json.dumps(nodes[:20])[:2000]}\n"
+        f"COMPLETED NODES: {json.dumps([n.get('title') for n in completed])[:500]}\n"
+        f"IN PROGRESS: {json.dumps([n.get('title') for n in in_prog])[:500]}\n"
+        f"SKILLS: {json.dumps(skills)[:800]}\n"
+        f"DAILY PLANS THIS WEEK: {json.dumps(plans)[:1200]}\n"
+        f"CHECKINS THIS WEEK: {json.dumps(checkins)[:600]}\n\n"
+        "Generate the weekly review JSON."
+    )
+    result = await llm_json(system, prompt, f"review-{user['id']}-{datetime.now().date().isoformat()}", require_keys=["summary", "wins", "next_week_focus"])
+    review_id = new_id()
+    await db.weekly_reviews.insert_one({
+        "id": review_id, "user_id": user["id"], "week_ending": datetime.now(timezone.utc).date().isoformat(),
+        "review": result, "applied": False, "ts": now_iso(),
+    })
+    return {"review_id": review_id, "review": result}
+
+
+@api.get("/ai/weekly-review/latest")
+async def weekly_review_latest(user=Depends(current_user)):
+    doc = await db.weekly_reviews.find_one({"user_id": user["id"]}, {"_id": 0}, sort=[("ts", -1)])
+    return {"review": doc}
+
+
+class ReviewApplyIn(BaseModel):
+    review_id: str
+
+
+@api.post("/ai/weekly-review/accept")
+async def weekly_review_accept(inp: ReviewApplyIn, user=Depends(current_user)):
+    doc = await db.weekly_reviews.find_one({"id": inp.review_id, "user_id": user["id"]})
+    if not doc:
+        raise HTTPException(404, "Review not found")
+    changes = (doc.get("review") or {}).get("roadmap_changes") or []
+    rm = await get_roadmap_dict(user["id"])
+    nodes = rm.get("nodes", []) if isinstance(rm, dict) else []
+    node_index = {n.get("id"): n for n in nodes if n.get("id")}
+    applied = 0
+    for c in changes:
+        nid = c.get("node_id")
+        ns = c.get("new_status")
+        if nid in node_index and ns in {"available", "recommended", "in_progress", "locked"}:
+            node_index[nid]["status"] = ns
+            applied += 1
+    if applied and isinstance(rm, dict):
+        await db.roadmaps.update_one({"user_id": user["id"]}, {"$set": {"roadmap": rm, "updated_at": now_iso()}})
+    await db.weekly_reviews.update_one({"id": inp.review_id}, {"$set": {"applied": True, "applied_at": now_iso()}})
+    return {"applied": applied, "roadmap": rm}
 
 
 # ---------------- register ----------------

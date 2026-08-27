@@ -422,3 +422,95 @@ class TestAuthorization:
     def test_requires_auth(self, base_url, path, method):
         r = requests.request(method, _url(base_url, path), json={"step": 0, "data": {}} if method == "POST" else None, timeout=30)
         assert r.status_code == 401, f"{path} returned {r.status_code}"
+
+
+
+# ---------------- Career Simulator ----------------
+class TestSimulator:
+    def test_run_simulator(self, ai_base_url, auth_headers):
+        payload = {
+            "target_role": "ML Engineer",
+            "industry": "Tech",
+            "salary_band": "20-30 LPA",
+            "location": "Bangalore",
+            "higher_studies": "maybe",
+            "startup_or_job": "either",
+        }
+        r = requests.post(_url(ai_base_url, "/api/ai/simulator"), json=payload, headers=auth_headers, timeout=AI_TIMEOUT)
+        assert r.status_code == 200, r.text
+        sim = r.json()["simulation"]
+        assert isinstance(sim, dict)
+        routes = sim.get("routes")
+        assert isinstance(routes, list) and len(routes) == 3, f"expected 3 routes, got {len(routes) if isinstance(routes, list) else type(routes)}"
+        for i, rt in enumerate(routes):
+            for k in ["name", "tagline", "steps", "skills", "effort", "duration", "milestones", "risks", "alternatives"]:
+                assert k in rt, f"route {i} missing {k}"
+            assert isinstance(rt["steps"], list) and len(rt["steps"]) >= 3
+            assert isinstance(rt["milestones"], list) and len(rt["milestones"]) >= 2
+        assert "caveats" in sim and isinstance(sim["caveats"], list)
+
+    def test_simulator_history(self, ai_base_url, auth_headers):
+        r = requests.get(_url(ai_base_url, "/api/ai/simulator/history"), headers=auth_headers, timeout=30)
+        assert r.status_code == 200
+        items = r.json()["simulations"]
+        assert isinstance(items, list) and len(items) >= 1
+        # newest first — first item should have result key
+        assert "result" in items[0]
+
+
+# ---------------- Weekly Review ----------------
+class TestWeeklyReview:
+    def test_generate_review(self, ai_base_url, auth_headers):
+        r = requests.post(_url(ai_base_url, "/api/ai/weekly-review"), headers=auth_headers, timeout=AI_TIMEOUT)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert "review_id" in body and body["review_id"]
+        review = body["review"]
+        for k in ["summary", "wins", "missed", "risks", "adjustments", "next_week_focus", "roadmap_changes"]:
+            assert k in review, f"review missing {k}"
+        assert isinstance(review["summary"], str) and len(review["summary"]) > 5
+        assert isinstance(review["wins"], list) and len(review["wins"]) >= 1
+        assert isinstance(review["next_week_focus"], list) and len(review["next_week_focus"]) >= 1
+        assert isinstance(review["roadmap_changes"], list)
+        STATE["review_id"] = body["review_id"]
+        STATE["review_changes"] = review["roadmap_changes"]
+
+    def test_latest_review(self, ai_base_url, auth_headers):
+        r = requests.get(_url(ai_base_url, "/api/ai/weekly-review/latest"), headers=auth_headers, timeout=30)
+        assert r.status_code == 200
+        doc = r.json()["review"]
+        assert doc is not None
+        assert doc["id"] == STATE["review_id"]
+
+    def test_accept_review(self, ai_base_url, auth_headers):
+        # Fetch current roadmap to determine expected valid node ids
+        rm_before = requests.get(_url(ai_base_url, "/api/roadmap"), headers=auth_headers, timeout=30).json().get("roadmap") or {}
+        valid_ids = {n["id"] for n in (rm_before.get("nodes") or [])}
+        changes = STATE.get("review_changes") or []
+        expected_valid = [c for c in changes if c.get("node_id") in valid_ids and c.get("new_status") in
+                          {"available", "recommended", "in_progress", "locked", "completed"}]
+
+        r = requests.post(_url(ai_base_url, "/api/ai/weekly-review/accept"),
+                          json={"review_id": STATE["review_id"]},
+                          headers=auth_headers, timeout=60)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert "applied" in body and isinstance(body["applied"], int)
+        assert body["applied"] == len(expected_valid), f"expected {len(expected_valid)} applied, got {body['applied']}"
+        assert "roadmap" in body and isinstance(body["roadmap"], dict)
+
+        # Verify persistence: GET /api/roadmap reflects those changes
+        if expected_valid:
+            r2 = requests.get(_url(ai_base_url, "/api/roadmap"), headers=auth_headers, timeout=30)
+            assert r2.status_code == 200
+            rm_after = r2.json()["roadmap"]
+            after_index = {n["id"]: n for n in rm_after.get("nodes", [])}
+            for c in expected_valid:
+                assert after_index[c["node_id"]]["status"] == c["new_status"], \
+                    f"node {c['node_id']} status not applied"
+
+    def test_accept_invalid_review(self, ai_base_url, auth_headers):
+        r = requests.post(_url(ai_base_url, "/api/ai/weekly-review/accept"),
+                          json={"review_id": "does-not-exist"},
+                          headers=auth_headers, timeout=30)
+        assert r.status_code == 404

@@ -1,8 +1,10 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { LayoutDashboard, Map, BarChart3, GraduationCap, Rocket, Music, Compass, Target, LogOut } from "lucide-react";
-import { useState } from "react";
+import { LayoutDashboard, Map, BarChart3, GraduationCap, Rocket, Music, Compass, Target, LogOut, Route, CalendarCheck, Ear } from "lucide-react";
+import { useState, useCallback } from "react";
 import ForgeDrawer from "@/components/ForgeDrawer";
+import useWakeWord from "@/hooks/useWakeWord";
+import { toast } from "sonner";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, testid: "nav-dashboard" },
@@ -13,6 +15,8 @@ const NAV = [
   { to: "/hobbies", label: "Hobbies", icon: Music, testid: "nav-hobbies" },
   { to: "/careers", label: "Careers", icon: Compass, testid: "nav-careers" },
   { to: "/skill-gap", label: "Skill Gap", icon: Target, testid: "nav-skill-gap" },
+  { to: "/simulator", label: "Simulator", icon: Route, testid: "nav-simulator" },
+  { to: "/weekly-review", label: "Weekly", icon: CalendarCheck, testid: "nav-weekly" },
 ];
 
 export default function AppShell({ children }) {
@@ -20,6 +24,28 @@ export default function AppShell({ children }) {
   const nav = useNavigate();
   const loc = useLocation();
   const [forgeOpen, setForgeOpen] = useState(false);
+  const [autoVoice, setAutoVoice] = useState(false);
+  const [wakeEnabled, setWakeEnabled] = useState(false);
+
+  const onWake = useCallback(() => {
+    setAutoVoice(true);
+    setForgeOpen(true);
+    toast("Hey Forge — listening.", { icon: "🛰️" });
+  }, []);
+
+  useWakeWord({ enabled: wakeEnabled && !forgeOpen, onWake });
+
+  const toggleWake = () => {
+    if (!wakeEnabled) {
+      // best-effort mic prime so browser grants persistent perm
+      navigator.mediaDevices?.getUserMedia?.({ audio: true }).then((s) => s.getTracks().forEach(t => t.stop())).catch(() => {});
+      setWakeEnabled(true);
+      toast.success('Wake word active. Say "Hey Forge".');
+    } else {
+      setWakeEnabled(false);
+      toast('Wake word off.');
+    }
+  };
 
   return (
     <div className="min-h-screen grain flex" data-testid="app-shell">
@@ -28,7 +54,7 @@ export default function AppShell({ children }) {
           <div className="w-6 h-6 border border-white/70 flex items-center justify-center"><div className="w-2 h-2 bg-white"/></div>
           PATHFORGE<span className="text-white/40">.AI</span>
         </Link>
-        <nav className="flex-1 p-3 space-y-1">
+        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
           {NAV.map((n) => {
             const active = loc.pathname === n.to;
             return (
@@ -38,10 +64,13 @@ export default function AppShell({ children }) {
             );
           })}
         </nav>
-        <div className="p-4 border-t border-white/10">
-          <div className="text-xs text-neutral-500 font-mono-ui mb-1">SIGNED IN</div>
+        <div className="p-4 border-t border-white/10 space-y-2">
+          <button onClick={toggleWake} data-testid="btn-wake-toggle" className={`w-full flex items-center gap-2 px-3 py-2 border text-xs font-mono-ui transition-colors ${wakeEnabled ? "bg-white text-black border-white" : "border-white/20 text-neutral-300 hover:border-white/50"}`}>
+            <Ear className="w-3 h-3"/>{wakeEnabled ? "WAKE WORD ON" : `SAY "HEY FORGE"`}
+          </button>
+          <div className="text-xs text-neutral-500 font-mono-ui pt-1">SIGNED IN</div>
           <div className="text-sm truncate">{user?.full_name}</div>
-          <div className="text-xs text-neutral-500 truncate mb-3">{user?.email}</div>
+          <div className="text-xs text-neutral-500 truncate">{user?.email}</div>
           <button className="btn-ghost w-full" onClick={() => { logout(); nav("/"); }} data-testid="btn-logout"><LogOut className="inline w-3 h-3 mr-1"/>LOGOUT</button>
         </div>
       </aside>
@@ -49,16 +78,19 @@ export default function AppShell({ children }) {
       <main className="flex-1 min-w-0 relative">
         <div className="md:hidden sticky top-0 z-30 border-b border-white/10 bg-black/90 backdrop-blur-md px-4 py-3 flex items-center justify-between">
           <Link to="/dashboard" className="font-display text-base flex items-center gap-2"><div className="w-5 h-5 border border-white/70 flex items-center justify-center"><div className="w-1.5 h-1.5 bg-white"/></div>PATHFORGE</Link>
-          <select value={loc.pathname} onChange={(e) => nav(e.target.value)} className="bg-black border border-white/15 text-xs font-mono-ui px-2 py-1" data-testid="mobile-nav-select">
-            {NAV.map((n) => <option key={n.to} value={n.to}>{n.label}</option>)}
-          </select>
+          <div className="flex items-center gap-2">
+            <button onClick={toggleWake} data-testid="btn-wake-toggle-mobile" className={`p-2 border ${wakeEnabled ? "border-white bg-white text-black" : "border-white/20 text-white/70"}`}><Ear className="w-3 h-3"/></button>
+            <select value={loc.pathname} onChange={(e) => nav(e.target.value)} className="bg-black border border-white/15 text-xs font-mono-ui px-2 py-1" data-testid="mobile-nav-select">
+              {NAV.map((n) => <option key={n.to} value={n.to}>{n.label}</option>)}
+            </select>
+          </div>
         </div>
         <div className="p-6 md:p-10">{children}</div>
 
-        <button onClick={() => setForgeOpen(true)} data-testid="forge-open" aria-label="Open Forge" className="arc-fab fixed bottom-6 right-6 z-40 w-16 h-16 flex items-center justify-center hover:scale-105 transition-transform">
+        <button onClick={() => { setAutoVoice(false); setForgeOpen(true); }} data-testid="forge-open" aria-label="Open Forge" className="arc-fab fixed bottom-6 right-6 z-40 w-16 h-16 flex items-center justify-center hover:scale-105 transition-transform">
           <div className="arc-core"/>
         </button>
-        <ForgeDrawer open={forgeOpen} onClose={() => setForgeOpen(false)}/>
+        <ForgeDrawer open={forgeOpen} onClose={() => { setForgeOpen(false); setAutoVoice(false); }} autoStartVoice={autoVoice}/>
       </main>
     </div>
   );
