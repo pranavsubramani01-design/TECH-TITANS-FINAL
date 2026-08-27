@@ -19,7 +19,7 @@ function pickVoice() {
   return voices.find((v) => v.lang?.startsWith("en")) || voices[0] || null;
 }
 
-export default function ForgeDrawer({ open, onClose, autoStartVoice = false }) {
+export default function ForgeDrawer({ open, onClose, autoStartVoice = false, initialQuestion = "" }) {
   const [msgs, setMsgs] = useState([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -41,7 +41,8 @@ export default function ForgeDrawer({ open, onClose, autoStartVoice = false }) {
     (async () => {
       try {
         const { data } = await api.get("/ai/forge/history");
-        setMsgs(data.messages || []);
+        const hist = data.messages || [];
+        setMsgs((m) => (m.length > hist.length ? m : hist));
       } catch {}
     })();
   }, [open]);
@@ -195,6 +196,17 @@ export default function ForgeDrawer({ open, onClose, autoStartVoice = false }) {
     }
     // eslint-disable-next-line
   }, [open, autoStartVoice]);
+
+  // question handed over from global search
+  const sentQRef = useRef("");
+  useEffect(() => {
+    if (open && initialQuestion && sentQRef.current !== initialQuestion) {
+      sentQRef.current = initialQuestion;
+      doSend(initialQuestion);
+    }
+    if (!open) sentQRef.current = "";
+    // eslint-disable-next-line
+  }, [open, initialQuestion]);
 
   if (!open) return null;
 

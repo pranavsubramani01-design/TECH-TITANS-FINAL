@@ -907,6 +907,408 @@ async def placement_latest(user=Depends(current_user)):
     return {"placement": (doc or {}).get("result"), "input": (doc or {}).get("input")}
 
 
+# ---------------- Global Search ----------------
+COMPANIES = [
+    {"name": "Google", "tags": ["FAANG", "Product", "DSA-heavy"]},
+    {"name": "Microsoft", "tags": ["Product", "Systems"]},
+    {"name": "Amazon", "tags": ["Leadership principles", "Scale"]},
+    {"name": "Meta", "tags": ["FAANG", "DSA-heavy"]},
+    {"name": "Apple", "tags": ["Hardware", "Systems"]},
+    {"name": "Netflix", "tags": ["Senior-heavy", "Culture"]},
+    {"name": "NVIDIA", "tags": ["GPU", "AI", "Systems"]},
+    {"name": "OpenAI", "tags": ["AI research", "Product"]},
+    {"name": "Goldman Sachs", "tags": ["Finance", "Quant"]},
+    {"name": "JPMorgan Chase", "tags": ["Finance", "Enterprise"]},
+    {"name": "Deloitte", "tags": ["Consulting", "Service"]},
+    {"name": "TCS", "tags": ["Mass recruiter", "Service"]},
+    {"name": "Infosys", "tags": ["Mass recruiter", "Service"]},
+    {"name": "Wipro", "tags": ["Mass recruiter", "Service"]},
+    {"name": "Accenture", "tags": ["Consulting", "Service"]},
+    {"name": "Zoho", "tags": ["Product", "Skill-first"]},
+    {"name": "Flipkart", "tags": ["E-commerce", "Scale"]},
+    {"name": "Zomato", "tags": ["Consumer", "Product"]},
+    {"name": "Razorpay", "tags": ["Fintech", "Startup"]},
+    {"name": "CRED", "tags": ["Fintech", "Design-led"]},
+    {"name": "Swiggy", "tags": ["Consumer", "Ops-tech"]},
+    {"name": "Atlassian", "tags": ["Product", "Remote"]},
+    {"name": "Uber", "tags": ["Scale", "Systems"]},
+    {"name": "Adobe", "tags": ["Product", "Creative tech"]},
+    {"name": "Qualcomm", "tags": ["Semiconductor", "VLSI"]},
+    {"name": "Texas Instruments", "tags": ["Semiconductor", "Analog"]},
+    {"name": "Intel", "tags": ["Semiconductor", "Systems"]},
+    {"name": "Samsung R&D", "tags": ["Hardware", "Embedded"]},
+    {"name": "De Shaw", "tags": ["Quant", "Highly selective"]},
+    {"name": "Tower Research", "tags": ["HFT", "Quant"]},
+]
+
+PAGES = [
+    {"label": "Dashboard", "to": "/dashboard", "hint": "Health score, today's plan, streak"},
+    {"label": "Roadmap", "to": "/roadmap", "hint": "Node canvas, job & founder tracks"},
+    {"label": "Skills", "to": "/skills", "hint": "Skill tracker"},
+    {"label": "Academics", "to": "/academics", "hint": "CGPA / SGPA tracker"},
+    {"label": "Projects", "to": "/projects", "hint": "Project tracker"},
+    {"label": "Hobbies", "to": "/hobbies", "hint": "Hobby tracker"},
+    {"label": "Career Explorer", "to": "/careers", "hint": "Browse career paths"},
+    {"label": "Skill Gap", "to": "/skill-gap", "hint": "Gap vs target career"},
+    {"label": "Career Simulator", "to": "/simulator", "hint": "Multi-route simulation"},
+    {"label": "Placement Simulator", "to": "/placement", "hint": "Company readiness"},
+    {"label": "Weekly Review", "to": "/weekly-review", "hint": "Wins, misses, next focus"},
+    {"label": "Streak", "to": "/streak", "hint": "Check-in streak & perks"},
+    {"label": "Resume Builder", "to": "/resume", "hint": "AI tailored one-page resume"},
+    {"label": "Founder Track", "to": "/founder", "hint": "Startup roadmap + validation log"},
+]
+
+
+@api.get("/search")
+async def global_search(q: str = "", user=Depends(current_user)):
+    ql = q.strip().lower()
+    out: Dict[str, List[dict]] = {"pages": [], "roadmap": [], "founder": [], "skills": [], "projects": [], "careers": [], "companies": []}
+    if not ql:
+        out["pages"] = [{"title": p["label"], "subtitle": p["hint"], "to": p["to"]} for p in PAGES]
+        return {"query": q, "results": out, "count": len(out["pages"]), "ask_forge": False}
+
+    def hit(*vals) -> bool:
+        return any(ql in str(v).lower() for v in vals if v)
+
+    out["pages"] = [{"title": p["label"], "subtitle": p["hint"], "to": p["to"]} for p in PAGES if hit(p["label"], p["hint"])][:6]
+
+    rm = await get_roadmap_dict(user["id"])
+    for n in (rm.get("nodes") or []):
+        if hit(n.get("title"), n.get("category"), n.get("why"), " ".join(n.get("skills") or [])):
+            out["roadmap"].append({"title": n.get("title"), "subtitle": f"{n.get('category','')} · {str(n.get('status','')).replace('_',' ')}", "to": "/roadmap"})
+    out["roadmap"] = out["roadmap"][:6]
+
+    fr = await get_founder_dict(user["id"])
+    for n in (fr.get("nodes") or []):
+        if hit(n.get("title"), n.get("category"), n.get("why")):
+            out["founder"].append({"title": n.get("title"), "subtitle": f"FOUNDER · {n.get('category','')}", "to": "/founder"})
+    out["founder"] = out["founder"][:5]
+
+    skills = await db.user_skills.find({"user_id": user["id"]}, {"_id": 0}).to_list(300)
+    out["skills"] = [{"title": s.get("name"), "subtitle": f"{s.get('category','skill')} · level {s.get('level', 0)}", "to": "/skills"} for s in skills if hit(s.get("name"), s.get("category"))][:6]
+
+    projects = await db.projects.find({"user_id": user["id"]}, {"_id": 0}).to_list(200)
+    out["projects"] = [{"title": p.get("name"), "subtitle": f"{p.get('tech','')} · {p.get('status','')}", "to": "/projects"} for p in projects if hit(p.get("name"), p.get("tech"), p.get("description"))][:6]
+
+    out["careers"] = [{"title": c["name"], "subtitle": c["summary"][:80], "to": "/careers"} for c in CAREERS if hit(c["name"], c["summary"], " ".join(c["skills"]))][:6]
+    out["companies"] = [{"title": c["name"], "subtitle": " · ".join(c["tags"]), "to": "/placement"} for c in COMPANIES if hit(c["name"], " ".join(c["tags"]))][:6]
+
+    count = sum(len(v) for v in out.values())
+    return {"query": q, "results": out, "count": count, "ask_forge": count == 0}
+
+
+# ---------------- Resume Builder ----------------
+def _resume_context(profile, cp, rm, skills, acads, projects, hobbies, user) -> dict:
+    total_cr = sum(x.get("credits", 0) for x in acads)
+    total_pts = sum(x.get("credits", 0) * x.get("grade_points", 0) for x in acads)
+    cgpa = round(total_pts / total_cr, 2) if total_cr else None
+    dirs = cp.get("career_directions") if isinstance(cp.get("career_directions"), list) else []
+    target = (dirs[0].get("name") if dirs else None) or (rm.get("target_career") if isinstance(rm, dict) else None) or "Software Engineer"
+    return {
+        "full_name": user["full_name"],
+        "email": user["email"],
+        "target_role": target,
+        "cgpa": cgpa,
+        "semesters": [{"semester": a.get("semester"), "sgpa": a.get("sgpa")} for a in acads][:12],
+        "profile": profile,
+        "skills": [{"name": s.get("name"), "category": s.get("category"), "level": s.get("level")} for s in skills][:40],
+        "projects": [{"name": p.get("name"), "tech": p.get("tech"), "description": p.get("description"), "status": p.get("status"), "link": p.get("link")} for p in projects][:12],
+        "hobbies": [h.get("name") for h in hobbies][:10],
+        "completed_nodes": [n.get("title") for n in (rm.get("nodes", []) if isinstance(rm, dict) else []) if n.get("status") == "completed"][:20],
+        "strengths": cp.get("strength_profile"),
+    }
+
+
+@api.post("/resume/generate")
+async def resume_generate(user=Depends(current_user)):
+    profile = (await db.profiles.find_one({"user_id": user["id"]}) or {}).get("data", {})
+    cp = await get_profile_dict(user["id"])
+    rm = await get_roadmap_dict(user["id"])
+    skills = await db.user_skills.find({"user_id": user["id"]}, {"_id": 0}).to_list(300)
+    acads = await db.academics.find({"user_id": user["id"]}, {"_id": 0}).to_list(300)
+    projects = await db.projects.find({"user_id": user["id"]}, {"_id": 0}).to_list(100)
+    hobbies = await db.hobbies.find({"user_id": user["id"]}, {"_id": 0}).to_list(100)
+    ctx = _resume_context(profile, cp, rm, skills, acads, projects, hobbies, user)
+
+    system = (
+        "You are PathForge AI's Resume Builder. Build a truthful, ATS-friendly ONE-PAGE resume tailored to the target role. "
+        "Return STRICT JSON: {name, email, phone, location, links:[{label,url}], headline (max 90 chars), "
+        "summary (2 sentences, first person free), education:[{institution, degree, detail, score, period}], "
+        "skills:[{group (e.g. Languages/Frameworks/Tools/Core), items:[max 8 short strings]}], "
+        "projects:[{name, tech, bullets:[2-3 impact bullets starting with a strong verb, max 120 chars each]}], "
+        "coursework:[max 6 short strings], achievements:[max 4 short strings], extras:[max 3 short strings], target_role}. "
+        "NEVER invent employers, internships, metrics, certifications, phone numbers or links that are not in the data. "
+        "If phone/location/links are unknown, return empty strings or empty arrays. Rewrite the student's real projects "
+        "and skills into strong resume language without fabricating outcomes. Keep total content to one page."
+    )
+    prompt = f"STUDENT DATA:\n{json.dumps(ctx, default=str)[:6000]}\n\nGenerate the tailored resume JSON now."
+    result = await llm_json(system, prompt, f"resume-{user['id']}-{int(datetime.now().timestamp())}", retries=2, require_keys=["name", "skills", "projects"])
+    result.setdefault("target_role", ctx["target_role"])
+    result.setdefault("email", ctx["email"])
+    result.setdefault("name", ctx["full_name"])
+    await db.resumes.update_one(
+        {"user_id": user["id"]},
+        {"$set": {"user_id": user["id"], "resume": result, "generated_at": now_iso(), "updated_at": now_iso()}},
+        upsert=True,
+    )
+    return {"resume": result}
+
+
+@api.get("/resume")
+async def resume_get(user=Depends(current_user)):
+    doc = await db.resumes.find_one({"user_id": user["id"]}, {"_id": 0}) or {}
+    r = doc.get("resume")
+    return {"resume": r if isinstance(r, dict) else None, "updated_at": doc.get("updated_at")}
+
+
+class ResumeSaveIn(BaseModel):
+    resume: Dict[str, Any]
+
+
+@api.put("/resume")
+async def resume_save(inp: ResumeSaveIn, user=Depends(current_user)):
+    await db.resumes.update_one(
+        {"user_id": user["id"]},
+        {"$set": {"user_id": user["id"], "resume": inp.resume, "updated_at": now_iso()}},
+        upsert=True,
+    )
+    return {"ok": True, "resume": inp.resume}
+
+
+def _build_resume_pdf(r: dict) -> bytes:
+    from io import BytesIO
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.lib.enums import TA_CENTER
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=16 * mm, rightMargin=16 * mm, topMargin=14 * mm, bottomMargin=14 * mm, title=f"{r.get('name','Resume')} — Resume")
+    name_s = ParagraphStyle("name", fontName="Helvetica-Bold", fontSize=20, leading=23, alignment=TA_CENTER, spaceAfter=2)
+    contact_s = ParagraphStyle("contact", fontName="Helvetica", fontSize=8.5, leading=12, alignment=TA_CENTER, textColor=colors.HexColor("#3f3f3f"))
+    sec_s = ParagraphStyle("sec", fontName="Helvetica-Bold", fontSize=9.5, leading=12, spaceBefore=8, spaceAfter=2, textColor=colors.black)
+    body_s = ParagraphStyle("body", fontName="Helvetica", fontSize=9, leading=12.5)
+    bullet_s = ParagraphStyle("bullet", parent=body_s, leftIndent=9, bulletIndent=1)
+
+    def esc(t):
+        return str(t or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    F = [Paragraph(esc(r.get("name")), name_s)]
+    contact = [x for x in [r.get("email"), r.get("phone"), r.get("location")] if x]
+    contact += [f"{l.get('label')}: {l.get('url')}" for l in (r.get("links") or []) if l.get("url")]
+    if contact:
+        F.append(Paragraph(esc(" | ".join(contact)), contact_s))
+    if r.get("headline"):
+        F.append(Paragraph(esc(r["headline"]), contact_s))
+    F.append(Spacer(1, 4))
+    F.append(HRFlowable(width="100%", thickness=0.8, color=colors.black, spaceAfter=2))
+
+    def section(title):
+        F.append(Paragraph(esc(title).upper(), sec_s))
+        F.append(HRFlowable(width="100%", thickness=0.4, color=colors.HexColor("#999999"), spaceAfter=4))
+
+    if r.get("summary"):
+        section("Summary")
+        F.append(Paragraph(esc(r["summary"]), body_s))
+    if r.get("education"):
+        section("Education")
+        for e in r["education"]:
+            head = " — ".join([x for x in [esc(e.get("institution")), esc(e.get("degree"))] if x])
+            right = " · ".join([x for x in [esc(e.get("score")), esc(e.get("period"))] if x])
+            F.append(Paragraph(f"<b>{head}</b>{(' · ' + right) if right else ''}", body_s))
+            if e.get("detail"):
+                F.append(Paragraph(esc(e["detail"]), body_s))
+    if r.get("skills"):
+        section("Skills")
+        for g in r["skills"]:
+            items = ", ".join([esc(i) for i in (g.get("items") or [])])
+            F.append(Paragraph(f"<b>{esc(g.get('group'))}:</b> {items}", body_s))
+    if r.get("projects"):
+        section("Projects")
+        for p in r["projects"]:
+            tech = f" <font color='#555555'>| {esc(p.get('tech'))}</font>" if p.get("tech") else ""
+            F.append(Paragraph(f"<b>{esc(p.get('name'))}</b>{tech}", body_s))
+            for b in (p.get("bullets") or []):
+                F.append(Paragraph(esc(b), bullet_s, bulletText="•"))
+    for key, title in [("coursework", "Relevant Coursework"), ("achievements", "Achievements"), ("extras", "Extras")]:
+        vals = r.get(key) or []
+        if vals:
+            section(title)
+            for v in vals:
+                F.append(Paragraph(esc(v), bullet_s, bulletText="•"))
+    doc.build(F)
+    return buf.getvalue()
+
+
+@api.get("/resume/pdf")
+async def resume_pdf(user=Depends(current_user)):
+    from fastapi.responses import Response
+    doc = await db.resumes.find_one({"user_id": user["id"]}) or {}
+    r = doc.get("resume")
+    if not isinstance(r, dict):
+        raise HTTPException(404, "No resume generated yet")
+    pdf = _build_resume_pdf(r)
+    fname = re.sub(r"[^A-Za-z0-9]+", "_", str(r.get("name") or "resume")).strip("_") or "resume"
+    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}_Resume.pdf"'})
+
+
+# ---------------- Founder Track ----------------
+FOUNDER_CATEGORIES = "'Discovery'|'Validation'|'MVP'|'Traction'|'Fundraising'|'Team'|'Ops'|'Skills'"
+
+
+async def get_founder_dict(user_id: str) -> dict:
+    doc = await db.founder_roadmaps.find_one({"user_id": user_id}) or {}
+    rm = doc.get("roadmap")
+    return rm if isinstance(rm, dict) else {}
+
+
+class FounderGenIn(BaseModel):
+    idea: Optional[str] = ""
+    horizon_months: Optional[int] = 12
+
+
+@api.post("/ai/generate-founder-roadmap")
+async def generate_founder_roadmap(inp: FounderGenIn, user=Depends(current_user)):
+    profile = (await db.profiles.find_one({"user_id": user["id"]}) or {}).get("data", {})
+    cp = await get_profile_dict(user["id"])
+    skills = await db.user_skills.find({"user_id": user["id"]}, {"_id": 0}).to_list(200)
+    projects = await db.projects.find({"user_id": user["id"]}, {"_id": 0}).to_list(50)
+
+    system = (
+        "You are PathForge AI's Founder Track Generator. Build a startup-building roadmap for a student founder. "
+        "Return STRICT JSON with keys: track ('founder'), idea (string), thesis (1 sentence), "
+        "phases (array of exactly 4 items each: {phase (int 1-4), label (short), window (e.g. 'Month 1-3'), "
+        "goal (1 short sentence), milestones (array of max 3 short strings), metrics (array of max 2 short strings), "
+        "risks (array of max 2 short strings)}), "
+        f"nodes (array of 12-16 items each: {{id (unique kebab-case), title, category ({FOUNDER_CATEGORIES}), "
+        "status ('locked'|'available'|'recommended'|'in_progress'|'completed'), difficulty ('Beginner'|'Intermediate'|'Advanced'), "
+        "est_hours (int), why (one short sentence), prerequisites (array of node ids), skills (array of max 3 short strings), "
+        "tasks (array of max 3 {title, minutes:int})}), "
+        "first_week (array of 3 short imperative actions), disclaimer (string). "
+        "The path MUST run customer discovery → problem validation → MVP scope/build → early traction → pitch/fundraise readiness. "
+        "Keep every string under 90 chars, no newlines inside strings. Make first 2-3 nodes 'available' or 'recommended', later ones 'locked'. "
+        "Ground it in the student's real skills, branch and time availability. Be honest about startup risk."
+    )
+    prompt = (
+        f"STUDENT: {json.dumps(profile)[:3000]}\n"
+        f"CAREER PROFILE: {json.dumps(cp)[:1200]}\n"
+        f"SKILLS: {json.dumps([s.get('name') for s in skills])[:600]}\n"
+        f"PROJECTS: {json.dumps([p.get('name') for p in projects])[:400]}\n"
+        f"STARTUP IDEA (may be vague or empty): {inp.idea or 'not decided yet — help them find a problem space that fits their skills'}\n"
+        f"HORIZON: {inp.horizon_months or 12} months\n\n"
+        "Generate the founder roadmap JSON now."
+    )
+    result = await llm_json(system, prompt, f"founder-{user['id']}-{int(datetime.now().timestamp())}", retries=2, require_keys=["phases", "nodes"])
+    result.setdefault("track", "founder")
+    result.setdefault("idea", inp.idea or "")
+    await db.founder_roadmaps.update_one(
+        {"user_id": user["id"]},
+        {"$set": {"user_id": user["id"], "roadmap": result, "idea": inp.idea or "", "generated_at": now_iso()}},
+        upsert=True,
+    )
+    return {"roadmap": result}
+
+
+@api.get("/founder/roadmap")
+async def founder_roadmap(user=Depends(current_user)):
+    r = await get_founder_dict(user["id"])
+    return {"roadmap": r or None}
+
+
+class FounderNodeIn(BaseModel):
+    node_id: str
+    status: str
+
+
+@api.post("/founder/node")
+async def founder_node(inp: FounderNodeIn, user=Depends(current_user)):
+    rm = await get_founder_dict(user["id"])
+    if not rm or not rm.get("nodes"):
+        raise HTTPException(404, "Founder roadmap not found")
+    allowed = {"locked", "available", "recommended", "in_progress", "completed"}
+    if inp.status not in allowed:
+        raise HTTPException(400, "Invalid status")
+    updated = False
+    for n in rm.get("nodes", []):
+        if n.get("id") == inp.node_id:
+            n["status"] = inp.status
+            updated = True
+    if updated:
+        await db.founder_roadmaps.update_one({"user_id": user["id"]}, {"$set": {"roadmap": rm, "updated_at": now_iso()}})
+    return {"ok": updated, "roadmap": rm}
+
+
+LOG_TYPES = {"interview", "hypothesis", "experiment", "mvp_scope", "metric"}
+LOG_OUTCOMES = {"validated", "invalidated", "inconclusive", "pending"}
+
+
+class FounderLogIn(BaseModel):
+    type: str
+    title: str
+    notes: Optional[str] = ""
+    outcome: Optional[str] = "pending"
+
+
+@api.get("/founder/log")
+async def founder_log_list(user=Depends(current_user)):
+    items = await db.founder_logs.find({"user_id": user["id"]}, {"_id": 0}).sort("ts", -1).to_list(300)
+    counts = {o: sum(1 for i in items if i.get("outcome") == o) for o in LOG_OUTCOMES}
+    return {"entries": items, "counts": counts, "total": len(items)}
+
+
+@api.post("/founder/log")
+async def founder_log_add(inp: FounderLogIn, user=Depends(current_user)):
+    if inp.type not in LOG_TYPES:
+        raise HTTPException(400, "Invalid type")
+    outcome = inp.outcome if inp.outcome in LOG_OUTCOMES else "pending"
+    doc = {"id": new_id(), "user_id": user["id"], "type": inp.type, "title": inp.title.strip(), "notes": (inp.notes or "").strip(), "outcome": outcome, "ts": now_iso()}
+    await db.founder_logs.insert_one(dict(doc))
+    return {"entry": doc}
+
+
+@api.delete("/founder/log/{lid}")
+async def founder_log_delete(lid: str, user=Depends(current_user)):
+    res = await db.founder_logs.delete_one({"id": lid, "user_id": user["id"]})
+    return {"ok": res.deleted_count > 0}
+
+
+@api.post("/founder/insights")
+async def founder_insights(user=Depends(current_user)):
+    items = await db.founder_logs.find({"user_id": user["id"]}, {"_id": 0}).sort("ts", -1).to_list(120)
+    if not items:
+        raise HTTPException(400, "Log at least one entry first")
+    rm = await get_founder_dict(user["id"])
+    system = (
+        "You are PathForge AI's Founder Coach. Analyze a student founder's validation log. Return STRICT JSON: "
+        "{signal_strength:int 0-100, stage:'pre-problem'|'problem-validated'|'solution-validated'|'early-traction', "
+        "patterns:[3 short strings], validated:[max 3 short strings], invalidated:[max 3 short strings], "
+        "blind_spots:[max 3 short strings], next_experiments:[3 {title, why, effort:'S'|'M'|'L'}], "
+        "kill_or_continue:string (1 honest sentence), disclaimer:string}. "
+        "Be brutally honest — if evidence is thin, say the signal is weak. Never inflate."
+    )
+    prompt = (
+        f"FOUNDER ROADMAP IDEA: {rm.get('idea') or 'unknown'}\n"
+        f"VALIDATION LOG ({len(items)} entries):\n{json.dumps(items, default=str)[:5000]}\n\n"
+        "Generate the insights JSON now."
+    )
+    result = await llm_json(system, prompt, f"founder-insights-{user['id']}-{int(datetime.now().timestamp())}", retries=2, require_keys=["signal_strength", "patterns", "next_experiments"])
+    await db.founder_insights.update_one(
+        {"user_id": user["id"]},
+        {"$set": {"user_id": user["id"], "insights": result, "ts": now_iso()}},
+        upsert=True,
+    )
+    return {"insights": result}
+
+
+@api.get("/founder/insights/latest")
+async def founder_insights_latest(user=Depends(current_user)):
+    doc = await db.founder_insights.find_one({"user_id": user["id"]}, {"_id": 0}) or {}
+    ins = doc.get("insights")
+    return {"insights": ins if isinstance(ins, dict) else None, "ts": doc.get("ts")}
+
+
 # ---------------- register ----------------
 app.include_router(api)
 app.add_middleware(

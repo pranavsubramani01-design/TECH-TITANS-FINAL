@@ -42,6 +42,8 @@ function makeEdges(nodes) {
 
 export default function RoadmapPage() {
   const [rm, setRm] = useState(null);
+  const [founderRm, setFounderRm] = useState(null);
+  const [track, setTrack] = useState("job");
   const [loading, setLoading] = useState(true);
   const [gen, setGen] = useState(false);
   const [sel, setSel] = useState(null);
@@ -50,43 +52,77 @@ export default function RoadmapPage() {
   const [q, setQ] = useState("");
 
   const load = async () => {
-    try { const { data } = await api.get("/roadmap"); setRm(data.roadmap); } finally { setLoading(false); }
+    try {
+      const [a, b] = await Promise.all([api.get("/roadmap"), api.get("/founder/roadmap")]);
+      setRm(a.data.roadmap); setFounderRm(b.data.roadmap);
+    } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
 
+  const isFounder = track === "founder";
+  const current = isFounder ? founderRm : rm;
+
   const generate = async () => {
     setGen(true);
-    try { const { data } = await api.post("/ai/generate-roadmap"); setRm(data.roadmap); toast.success("Roadmap generated"); }
+    try {
+      if (isFounder) {
+        const { data } = await api.post("/ai/generate-founder-roadmap", { idea: "", horizon_months: 12 });
+        setFounderRm(data.roadmap);
+      } else {
+        const { data } = await api.post("/ai/generate-roadmap");
+        setRm(data.roadmap);
+      }
+      toast.success(isFounder ? "Founder track generated" : "Roadmap generated");
+    }
     catch { toast.error("Generation failed"); }
     finally { setGen(false); }
   };
 
   const updateStatus = async (node_id, status) => {
-    try { const { data } = await api.post("/roadmap/node", { node_id, status }); setRm(data.roadmap); if (sel) setSel(data.roadmap.nodes.find(n => n.id === node_id)); toast.success(`Marked ${status.replace("_", " ")}`); }
+    try {
+      const { data } = await api.post(isFounder ? "/founder/node" : "/roadmap/node", { node_id, status });
+      if (isFounder) setFounderRm(data.roadmap); else setRm(data.roadmap);
+      if (sel) setSel(data.roadmap.nodes.find(n => n.id === node_id));
+      toast.success(`Marked ${status.replace("_", " ")}`);
+    }
     catch { toast.error("Update failed"); }
   };
 
   const filteredNodes = useMemo(() => {
-    if (!rm?.nodes) return [];
-    let n = rm.nodes;
+    if (!current?.nodes) return [];
+    let n = current.nodes;
     if (filter !== "all") n = n.filter(x => x.status === filter);
     if (q.trim()) n = n.filter(x => (x.title + " " + x.category).toLowerCase().includes(q.toLowerCase()));
     return n;
-  }, [rm, filter, q]);
+  }, [current, filter, q]);
 
   const rfNodes = useMemo(() => makeNodes(filteredNodes), [filteredNodes]);
   const rfEdges = useMemo(() => makeEdges(filteredNodes), [filteredNodes]);
 
   const onNodeClick = useCallback((_e, node) => setSel(node.data.raw), []);
 
+  const TrackToggle = (
+    <div className="flex border border-white/15" data-testid="track-toggle">
+      {[["job", "JOB TRACK"], ["founder", "FOUNDER TRACK"]].map(([t, label]) => (
+        <button key={t} onClick={() => { setTrack(t); setSel(null); setFilter("all"); setView("map"); }} data-testid={`track-${t}`}
+          className={`px-3 py-2 text-xs font-mono-ui transition-colors ${track === t ? "bg-white text-black" : "text-neutral-400 hover:text-white"}`}>{label}</button>
+      ))}
+    </div>
+  );
+
   if (loading) return <div className="text-neutral-500 font-mono-ui text-xs">LOADING ROADMAP...</div>;
 
-  if (!rm) return (
-    <div className="max-w-2xl">
-      <div className="mono-label mb-2">// no roadmap yet</div>
-      <h1 className="font-display text-3xl mb-4">Generate your personalised roadmap</h1>
-      <p className="text-neutral-400 mb-6">Forge will use your profile, career direction, current skills and available time to build a 4-year path.</p>
-      <button className="btn-primary" onClick={generate} disabled={gen} data-testid="btn-generate-roadmap">{gen ? "GENERATING..." : "GENERATE ROADMAP"}</button>
+  if (!current) return (
+    <div className="max-w-2xl space-y-6">
+      {TrackToggle}
+      <div>
+        <div className="mono-label mb-2">// {isFounder ? "no founder track yet" : "no roadmap yet"}</div>
+        <h1 className="font-display text-3xl mb-4">{isFounder ? "Build your founder track" : "Generate your personalised roadmap"}</h1>
+        <p className="text-neutral-400 mb-6">{isFounder
+          ? "Customer discovery, validation, MVP, traction and pitch readiness — grounded in your real skills and time."
+          : "Forge will use your profile, career direction, current skills and available time to build a 4-year path."}</p>
+        <button className="btn-primary" onClick={generate} disabled={gen} data-testid="btn-generate-roadmap">{gen ? "GENERATING..." : isFounder ? "BUILD FOUNDER TRACK" : "GENERATE ROADMAP"}</button>
+      </div>
     </div>
   );
 
@@ -94,22 +130,27 @@ export default function RoadmapPage() {
     <div className="space-y-6" data-testid="roadmap-page">
       <header className="flex items-end justify-between flex-wrap gap-4">
         <div>
-          <div className="mono-label mb-2">// roadmap · {rm.target_career}</div>
-          <h1 className="font-display text-4xl tracking-tighter">Your Path.</h1>
+          <div className="mono-label mb-2">// {isFounder ? `founder track · ${current.idea || "unscoped idea"}` : `roadmap · ${current.target_career}`}</div>
+          <h1 className="font-display text-4xl tracking-tighter">{isFounder ? "Your Venture." : "Your Path."}</h1>
         </div>
         <div className="flex gap-2 flex-wrap">
+          {TrackToggle}
           <input placeholder="SEARCH..." value={q} onChange={(e) => setQ(e.target.value)} className="bg-transparent border border-white/15 px-3 py-2 text-xs font-mono-ui" data-testid="rm-search"/>
           <select value={filter} onChange={(e) => setFilter(e.target.value)} className="bg-black border border-white/15 px-3 py-2 text-xs font-mono-ui" data-testid="rm-filter">
             {["all","recommended","available","in_progress","completed","locked"].map(f => <option key={f} value={f}>{f.replace("_", " ").toUpperCase()}</option>)}
           </select>
           <div className="flex border border-white/15">
-            {["map","list","timeline"].map(v => (
+            {(isFounder ? ["map","list"] : ["map","list","timeline"]).map(v => (
               <button key={v} onClick={() => setView(v)} data-testid={`view-${v}`} className={`px-3 py-2 text-xs font-mono-ui ${view === v ? "bg-white text-black" : "text-neutral-400"}`}>{v.toUpperCase()}</button>
             ))}
           </div>
           <button className="btn-ghost" onClick={generate} disabled={gen} data-testid="btn-regen-roadmap">{gen ? "REGEN..." : "REGENERATE"}</button>
         </div>
       </header>
+
+      {isFounder && (
+        <a href="/founder" className="inline-block font-mono-ui text-[10px] text-neutral-500 hover:text-white" data-testid="link-founder-page">OPEN FULL FOUNDER WORKSPACE (PHASES + VALIDATION LOG) →</a>
+      )}
 
       {view === "map" && (
         <div className="card-surface" style={{ height: 620 }}>
@@ -137,7 +178,7 @@ export default function RoadmapPage() {
 
       {view === "timeline" && (
         <div className="space-y-8">
-          {(rm.years || []).map((y) => (
+          {(current.years || []).map((y) => (
             <div key={y.year} data-testid={`year-${y.year}`}>
               <div className="mono-label mb-3">YEAR {y.year} · {y.label}</div>
               <div className="grid md:grid-cols-2 gap-px bg-white/10">

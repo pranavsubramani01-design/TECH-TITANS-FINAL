@@ -8,10 +8,12 @@ AI-powered Student Career & Roadmap Operating System. A Jarvis-style companion t
 - Frontend: React 19 + Tailwind + shadcn/ui + reactflow
 - AI: Claude Sonnet 4.6 via Emergent Universal LLM Key
 - Auth: Email/password JWT
+- PDF: reportlab (server-side resume PDF)
 
 ## User personas
 - First-year student (unsure about career)
 - Later-year student refining path
+- Student founder (founder track)
 - Admin (deferred)
 
 ## Phase 1 (SHIPPED — 2026-02)
@@ -21,53 +23,53 @@ AI-powered Student Career & Roadmap Operating System. A Jarvis-style companion t
 - AI-generated Student Intelligence Profile (top 5 careers, interest radar, strengths, dev areas, alternatives, skill gaps)
 - Personalized 4-year roadmap generator + node canvas (roadmap.sh-inspired) + list view
 - Node detail + status transitions (locked/available/recommended/in_progress/completed) with Ask Forge / Add to Today / Mark Complete
-- Skill Tracker CRUD
-- Academic (CGPA/SGPA) tracker with auto-computation
-- Project tracker CRUD
-- Hobby tracker CRUD
-- Daily Check-in
-- AI Daily Planner (context-aware today's plan)
-- Forge AI companion (persistent chat + proactive nudges — Jarvis feel)
-- Career Explorer (searchable career database)
-- Skill-Gap Analyzer
+- Skill Tracker CRUD, Academic (CGPA/SGPA) tracker, Project tracker, Hobby tracker
+- Daily Check-in + AI Daily Planner
+- Forge AI companion (persistent chat + proactive nudges)
+- Career Explorer, Skill-Gap Analyzer
 - Main Dashboard with widgets + health score
 - Black + dark-grey monochrome design system (Swiss/Brutalist)
 
 ## Deferred (backlog)
-- Alumni intelligence + matching + trajectories
-- Admin dashboard + analytics
-- Weekly review with Accept/Customize
-- Career Goal Simulator (multi-route)
-- Global search + notification settings
-- Streaming AI responses
-- Email verification + password reset flow (basic reset stub only)
+- Alumni intelligence + matching + trajectories (P1)
+- Admin dashboard + analytics (P2)
+- Automated notifications / deadline reminders (P2)
+- Streaming AI responses (P2)
+- Email verification + real password reset flow (P2)
 
 ## Test credentials
 See /app/memory/test_credentials.md
 
 ## Iteration 2 — Voice Forge (Jarvis mode) — 2026-02
-- Forge companion now speaks and listens via browser-native Web Speech API (SpeechRecognition + SpeechSynthesis)
-- New Jarvis arc-reactor animations on FAB and drawer header (pulses on speak, blooms on listen)
-- Mic-input volume feeds real-time reactor scale
+- Forge speaks and listens via Web Speech API (SpeechRecognition + SpeechSynthesis)
+- Jarvis arc-reactor animations on FAB and drawer header; mic volume feeds reactor scale
 
 ## Iteration 3 — AI shape-drift hardening — 2026-02
-- llm_json now takes require_keys=[] and retries once with stricter prompt if shape/keys missing
-- get_roadmap_dict/get_profile_dict coerce all reader endpoints to dict — no more 500s on poisoned docs
-- Timestamp-suffixed session_id per generate-roadmap call prevents Claude conversation drift
-- 56/56 backend tests green (was 53/56)
+- llm_json takes require_keys=[] and retries with stricter prompt on bad shape
+- get_roadmap_dict/get_profile_dict coerce reader endpoints to dict
+- Timestamp-suffixed session_id per generate call prevents Claude drift
 
 ## Iteration 4 — Jarvis becomes real — 2026-02
-- Wake word: sidebar toggle ("Hey Forge") activates persistent SpeechRecognition; saying "hey/hi/ok forge" opens the drawer & auto-starts voice input
-- Career Simulator page /simulator — generates 3 personalized routes to any target role with steps/skills/milestones/effort/risks + honest caveats
-- Weekly Review page /weekly-review — wins/missed/risks/next-focus + Accept-all/Customize roadmap changes with real persistence
-- Live Transcript: Forge's spoken reply is revealed word-by-word using onboundary events (falls back to timed cadence)
-- Hardening: bumped generate-roadmap llm_json retries to 2; tightened weekly-review accept status allowlist
+- Wake word ("Hey Forge") sidebar toggle → auto-opens drawer + voice input
+- Career Simulator /simulator (3 personalized routes to any target role)
+- Weekly Review /weekly-review (wins/missed/risks/next-focus + Accept-all/Customize)
+- Live transcript reveal via onboundary events
 
 ## Iteration 5 — Placement + Streak Rewards — 2026-02
-- Placement Simulator (/placement): estimates readiness per company (score, verdict, strengths, gaps, missing skills, critical actions, bar notes) + overall + top move
-- Streak Rewards: /api/streak computes current/longest/total from unique check-in dates; 6-tier perk system (Spark 3d → Singularity 100d)
-- Dashboard streak widget with inline one-tap check-in form
-- Streak page /streak with 3 stat blocks, next-perk progress bar, 6-card perks grid
-- /api/checkin is now idempotent per (user, date) via upsert
-- Placement Simulator "Reset" button clears hydrated inputs
+- Placement Simulator /placement (per-company readiness, gaps, critical actions)
+- Streak Rewards /api/streak + /streak page (6-tier perk system), idempotent check-in
 - 70/70 backend tests green
+
+## Iteration 6 — Search, Resume, Founder Track — 2026-06
+- **Global Search**: `GET /api/search?q=` fans out over 14 pages, roadmap nodes, founder nodes, skills, projects, 12 careers, 30 companies. `CommandPalette.jsx` opens on ⌘/Ctrl+K (or sidebar SEARCH button), grouped results, ↑↓ nav, ⏎ to jump, ESC to close. Zero results → "Ask Forge" fall-through that opens the drawer and sends the query (ForgeDrawer `initialQuestion` prop).
+- **Resume Builder** (`/resume`): `POST /api/resume/generate` — Claude writes a truthful ATS one-pager from real CGPA, skills, projects and target career (explicitly forbidden from inventing employers/metrics/links). Editable (headline, summary, contact, skill groups, project bullets, achievements, coursework) with `PUT /api/resume` persistence. Two exports: browser print (@media print isolates `#resume-print`) and `GET /api/resume/pdf` (reportlab A4, verified 200 + %PDF).
+- **Founder Track**: `POST /api/ai/generate-founder-roadmap` → 4 phases (discovery → validation → MVP/traction → fundraise), 12-16 founder-category nodes, thesis, first-week actions, honest disclaimer. Toggle on `/roadmap` (`track-job` / `track-founder`) reuses the React Flow canvas and routes status writes to `/api/founder/node`. `/founder` workspace adds the validation log (interview/hypothesis/experiment/mvp_scope/metric with outcomes + counts) and `POST /api/founder/insights` → signal strength, stage, patterns, blind spots, kill-or-continue, 3 next experiments.
+- Testing: **86/86 backend tests green** (16 new). Frontend flows verified by testing agent (palette open/search/keyboard nav/ask-forge, resume preview+edit+persist+PDF, founder phases/log/insights, roadmap track toggle both ways).
+- Post-test fixes: search now filters all nodes before slicing to 6; ForgeDrawer history load no longer overwrites a message sent via search hand-off.
+- Known infra note: Emergent LLM key budget was exhausted during testing — live AI calls 500 until topped up (Profile → Manage plan → Universal Key → Add Balance).
+
+## Backlog / next
+- P1: Alumni intelligence (database, matching, trajectories, alumni roadmap view)
+- P1: Career Explorer depth (per-career roadmaps + market insights, currently a browse list)
+- P2: Admin dashboard, notifications, streaming AI, resume variants per company
+- P2 (tech debt): server.py is ~1330 lines — split into routers/{search,resume,founder}.py

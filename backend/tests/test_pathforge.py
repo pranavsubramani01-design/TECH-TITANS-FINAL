@@ -673,3 +673,181 @@ class TestPlacement:
         names = {c["name"].lower() for c in p["companies"]}
         # Should hit at least one default
         assert names & {"google", "microsoft", "amazon"}, f"expected default companies, got {names}"
+
+
+# ---------------- Iteration 6: Global Search ----------------
+class TestGlobalSearch:
+    def test_empty_returns_all_pages(self, base_url, auth_headers):
+        r = requests.get(_url(base_url, "/api/search"), headers=auth_headers, timeout=30)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d["ask_forge"] is False
+        assert d["count"] == 14
+        pages = d["results"]["pages"]
+        assert len(pages) == 14
+        labels = {p["title"] for p in pages}
+        for x in ["Dashboard", "Roadmap", "Resume Builder", "Founder Track", "Placement Simulator", "Streak"]:
+            assert x in labels, f"missing page {x}"
+
+    def test_company_hit(self, base_url, auth_headers):
+        r = requests.get(_url(base_url, "/api/search?q=goog"), headers=auth_headers, timeout=30)
+        assert r.status_code == 200
+        d = r.json()
+        names = {c["title"] for c in d["results"]["companies"]}
+        assert "Google" in names
+
+    def test_python_skill_or_career(self, base_url, auth_headers):
+        r = requests.get(_url(base_url, "/api/search?q=python"), headers=auth_headers, timeout=30)
+        assert r.status_code == 200
+        d = r.json()
+        # python should surface at least a career OR skill hit
+        assert d["count"] >= 1
+        combined = d["results"]["careers"] + d["results"]["skills"] + d["results"]["roadmap"]
+        assert len(combined) >= 1, f"no python hits in careers/skills/roadmap: {d['results']}"
+
+    def test_nonsense_ask_forge(self, base_url, auth_headers):
+        r = requests.get(_url(base_url, "/api/search?q=zzzqqqfoobarbaz"), headers=auth_headers, timeout=30)
+        assert r.status_code == 200
+        d = r.json()
+        assert d["count"] == 0
+        assert d["ask_forge"] is True
+
+    def test_requires_auth(self, base_url):
+        r = requests.get(_url(base_url, "/api/search?q=goog"), timeout=30)
+        assert r.status_code == 401
+
+
+# ---------------- Iteration 6: Resume ----------------
+class TestResume:
+    @pytest.fixture(scope="class")
+    def _ensure_resume(self, ai_base_url, auth_headers):
+        # Reuse the main test user; ensure a resume exists
+        r = requests.get(_url(ai_base_url, "/api/resume"), headers=auth_headers, timeout=30)
+        if r.json().get("resume") is None:
+            r2 = requests.post(_url(ai_base_url, "/api/resume/generate"), headers=auth_headers, timeout=AI_TIMEOUT)
+            assert r2.status_code == 200, r2.text
+        yield
+
+    def test_generate(self, ai_base_url, auth_headers, _ensure_resume):
+        r = requests.post(_url(ai_base_url, "/api/resume/generate"), headers=auth_headers, timeout=AI_TIMEOUT)
+        assert r.status_code == 200, r.text
+        res = r.json()["resume"]
+        for k in ["name", "email", "skills", "projects", "target_role"]:
+            assert k in res, f"resume missing {k}"
+        assert isinstance(res["skills"], list) and len(res["skills"]) >= 1
+        assert isinstance(res["projects"], list)
+
+    def test_get(self, ai_base_url, auth_headers, _ensure_resume):
+        r = requests.get(_url(ai_base_url, "/api/resume"), headers=auth_headers, timeout=30)
+        assert r.status_code == 200
+        assert r.json()["resume"] is not None
+
+    def test_save_and_persist(self, ai_base_url, auth_headers, _ensure_resume):
+        r = requests.get(_url(ai_base_url, "/api/resume"), headers=auth_headers, timeout=30)
+        resume = r.json()["resume"]
+        resume["headline"] = "TEST_HEADLINE_ITER6"
+        resume["summary"] = "TEST_SUMMARY_EDITED_FOR_ITER6"
+        r2 = requests.put(_url(ai_base_url, "/api/resume"), json={"resume": resume}, headers=auth_headers, timeout=30)
+        assert r2.status_code == 200
+        r3 = requests.get(_url(ai_base_url, "/api/resume"), headers=auth_headers, timeout=30)
+        got = r3.json()["resume"]
+        assert got["headline"] == "TEST_HEADLINE_ITER6"
+        assert got["summary"] == "TEST_SUMMARY_EDITED_FOR_ITER6"
+
+    def test_pdf_returns_binary(self, ai_base_url, auth_headers, _ensure_resume):
+        r = requests.get(_url(ai_base_url, "/api/resume/pdf"), headers=auth_headers, timeout=60)
+        assert r.status_code == 200, r.text[:200]
+        assert r.headers.get("content-type", "").startswith("application/pdf"), r.headers
+        assert r.content[:4] == b"%PDF", "PDF magic bytes missing"
+        assert len(r.content) > 1500, f"PDF too small: {len(r.content)} bytes"
+
+
+# ---------------- Iteration 6: Founder Track ----------------
+class TestFounder:
+    @pytest.fixture(scope="class")
+    def founder_ctx(self, base_url):
+        email = f"founder_{uuid.uuid4().hex[:8]}@pathforge.ai"
+        r = requests.post(_url(base_url, "/api/auth/signup"),
+                          json={"full_name": "Founder User", "email": email, "password": "Passw0rd!"}, timeout=30)
+        assert r.status_code == 200
+        token = r.json()["token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        # Minimal onboarding
+        requests.post(_url(base_url, "/api/profile/onboarding"),
+                      json={"step": 12, "data": {"branch": "CSE", "year": 3, "semester": 5, "first_name": "Founder", "available_time": 120, "primary_career": "Founder", "interests": ["Startups"], "learning_style": "visual", "strengths": ["execution"], "priorities": ["startup"]}, "complete": True},
+                      headers=headers, timeout=30)
+        return {"headers": headers}
+
+    def test_insights_empty_log_returns_400(self, ai_base_url, founder_ctx):
+        # Fresh user with no logs
+        r = requests.post(_url(ai_base_url, "/api/founder/insights"), headers=founder_ctx["headers"], timeout=30)
+        assert r.status_code == 400, f"expected 400 on empty log, got {r.status_code}: {r.text[:200]}"
+
+    def test_generate_roadmap(self, ai_base_url, founder_ctx):
+        r = requests.post(_url(ai_base_url, "/api/ai/generate-founder-roadmap"),
+                          json={"idea": "student productivity tools", "horizon_months": 12},
+                          headers=founder_ctx["headers"], timeout=AI_TIMEOUT)
+        assert r.status_code == 200, r.text[:500]
+        rm = r.json()["roadmap"]
+        assert isinstance(rm.get("phases"), list) and len(rm["phases"]) == 4, f"expected 4 phases, got {len(rm.get('phases', []))}"
+        nodes = rm.get("nodes", [])
+        assert 12 <= len(nodes) <= 16, f"expected 12-16 nodes, got {len(nodes)}"
+        for n in nodes:
+            assert "id" in n and "title" in n and "category" in n and "status" in n
+        founder_ctx["nodes"] = nodes
+
+    def test_get_founder_roadmap(self, ai_base_url, founder_ctx):
+        r = requests.get(_url(ai_base_url, "/api/founder/roadmap"), headers=founder_ctx["headers"], timeout=30)
+        assert r.status_code == 200
+        assert r.json()["roadmap"] is not None
+
+    def test_node_status_update(self, ai_base_url, founder_ctx):
+        nid = founder_ctx["nodes"][0]["id"]
+        r = requests.post(_url(ai_base_url, "/api/founder/node"), json={"node_id": nid, "status": "completed"},
+                          headers=founder_ctx["headers"], timeout=30)
+        assert r.status_code == 200
+        rm = r.json()["roadmap"]
+        assert any(n["id"] == nid and n["status"] == "completed" for n in rm["nodes"])
+
+    def test_node_invalid_status_400(self, ai_base_url, founder_ctx):
+        nid = founder_ctx["nodes"][0]["id"]
+        r = requests.post(_url(ai_base_url, "/api/founder/node"), json={"node_id": nid, "status": "bogus"},
+                          headers=founder_ctx["headers"], timeout=30)
+        assert r.status_code == 400
+
+    def test_log_crud_and_counts(self, base_url, founder_ctx):
+        # add interview validated
+        r = requests.post(_url(base_url, "/api/founder/log"),
+                          json={"type": "interview", "title": "TEST_talked to 5 users", "notes": "n", "outcome": "validated"},
+                          headers=founder_ctx["headers"], timeout=30)
+        assert r.status_code == 200
+        lid_v = r.json()["entry"]["id"]
+        # hypothesis invalidated
+        r = requests.post(_url(base_url, "/api/founder/log"),
+                          json={"type": "hypothesis", "title": "TEST_daily use hypothesis", "notes": "n", "outcome": "invalidated"},
+                          headers=founder_ctx["headers"], timeout=30)
+        assert r.status_code == 200
+        lid_i = r.json()["entry"]["id"]
+        # invalid type
+        r = requests.post(_url(base_url, "/api/founder/log"),
+                          json={"type": "bogus", "title": "x"}, headers=founder_ctx["headers"], timeout=30)
+        assert r.status_code == 400
+        # list & counts
+        r = requests.get(_url(base_url, "/api/founder/log"), headers=founder_ctx["headers"], timeout=30)
+        d = r.json()
+        assert d["total"] >= 2
+        assert d["counts"]["validated"] >= 1
+        assert d["counts"]["invalidated"] >= 1
+        # delete
+        r = requests.delete(_url(base_url, f"/api/founder/log/{lid_v}"), headers=founder_ctx["headers"], timeout=30)
+        assert r.status_code == 200 and r.json()["ok"] is True
+        founder_ctx["remaining_log"] = lid_i
+
+    def test_insights_after_logs(self, ai_base_url, founder_ctx):
+        r = requests.post(_url(ai_base_url, "/api/founder/insights"), headers=founder_ctx["headers"], timeout=AI_TIMEOUT)
+        assert r.status_code == 200, r.text[:500]
+        ins = r.json()["insights"]
+        assert isinstance(ins.get("signal_strength"), int)
+        assert 0 <= ins["signal_strength"] <= 100
+        assert isinstance(ins.get("patterns"), list) and len(ins["patterns"]) >= 1
+        assert isinstance(ins.get("next_experiments"), list) and len(ins["next_experiments"]) >= 1
