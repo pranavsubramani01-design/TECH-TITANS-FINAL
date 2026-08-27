@@ -49,7 +49,7 @@ def auth_headers(signup_user):
 # ---------------- Auth ----------------
 class TestAuth:
     def test_signup_returns_token(self, signup_user):
-        assert signup_user["user"]["onboarding_complete"] is False
+        assert signup_user["user"]["onboarding_complete"] == False
 
     def test_login_valid(self, base_url):
         r = requests.post(_url(base_url, "/api/auth/login"), json={"email": STATE["email"], "password": STATE["password"]}, timeout=30)
@@ -106,7 +106,7 @@ class TestOnboarding:
                           headers=auth_headers, timeout=30)
         assert r.status_code == 200
         r2 = requests.get(_url(base_url, "/api/auth/me"), headers=auth_headers, timeout=30)
-        assert r2.json()["user"]["onboarding_complete"] is True
+        assert r2.json()["user"]["onboarding_complete"] == True
 
 
 # ---------------- AI Interview ----------------
@@ -681,7 +681,7 @@ class TestGlobalSearch:
         r = requests.get(_url(base_url, "/api/search"), headers=auth_headers, timeout=30)
         assert r.status_code == 200, r.text
         d = r.json()
-        assert d["ask_forge"] is False
+        assert d["ask_forge"] == False
         assert d["count"] == 14
         pages = d["results"]["pages"]
         assert len(pages) == 14
@@ -710,7 +710,7 @@ class TestGlobalSearch:
         assert r.status_code == 200
         d = r.json()
         assert d["count"] == 0
-        assert d["ask_forge"] is True
+        assert d["ask_forge"] == True
 
     def test_requires_auth(self, base_url):
         r = requests.get(_url(base_url, "/api/search?q=goog"), timeout=30)
@@ -721,10 +721,18 @@ class TestGlobalSearch:
 class TestResume:
     @pytest.fixture(scope="class")
     def _ensure_resume(self, ai_base_url, auth_headers):
-        # Reuse the main test user; ensure a resume exists
+        # Reuse the main test user; ensure a resume exists without depending on the LLM
         r = requests.get(_url(ai_base_url, "/api/resume"), headers=auth_headers, timeout=30)
         if r.json().get("resume") is None:
-            r2 = requests.post(_url(ai_base_url, "/api/resume/generate"), headers=auth_headers, timeout=AI_TIMEOUT)
+            seed = {
+                "name": "Test Student", "email": "test@pathforge.ai", "phone": "", "location": "",
+                "links": [], "headline": "Seeded resume for tests", "summary": "Seeded summary.",
+                "education": [{"institution": "Test College", "degree": "B.Tech CSE", "detail": "", "score": "8.1", "period": "2022-2026"}],
+                "skills": [{"group": "Languages", "items": ["Python", "C++"]}],
+                "projects": [{"name": "Test Project", "tech": "Python", "bullets": ["Built a seeded test project"]}],
+                "coursework": [], "achievements": [], "extras": [], "target_role": "Software Engineer",
+            }
+            r2 = requests.put(_url(ai_base_url, "/api/resume"), json={"resume": seed}, headers=auth_headers, timeout=30)
             assert r2.status_code == 200, r2.text
         yield
 
@@ -840,7 +848,7 @@ class TestFounder:
         assert d["counts"]["invalidated"] >= 1
         # delete
         r = requests.delete(_url(base_url, f"/api/founder/log/{lid_v}"), headers=founder_ctx["headers"], timeout=30)
-        assert r.status_code == 200 and r.json()["ok"] is True
+        assert r.status_code == 200 and r.json()["ok"] == True
         founder_ctx["remaining_log"] = lid_i
 
     def test_insights_after_logs(self, ai_base_url, founder_ctx):

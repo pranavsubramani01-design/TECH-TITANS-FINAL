@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import api, { API_BASE } from "@/lib/api";
+import api from "@/lib/api";
 import { toast } from "sonner";
 import { Download, Printer, Sparkles, Save, Pencil, X } from "lucide-react";
 
@@ -15,7 +15,7 @@ export default function ResumePage() {
 
   useEffect(() => {
     (async () => {
-      try { const { data } = await api.get("/resume"); setResume(data.resume); } catch {}
+      try { const { data } = await api.get("/resume"); setResume(data.resume); } catch (err) { console.error("resume: load failed", err); }
       finally { setLoading(false); }
     })();
   }, []);
@@ -43,15 +43,12 @@ export default function ResumePage() {
 
   const download = async () => {
     try {
-      const token = localStorage.getItem("pf_token");
-      const r = await fetch(`${API_BASE}/resume/pdf`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!r.ok) throw new Error();
-      const blob = await r.blob();
-      const url = URL.createObjectURL(blob);
+      const { data } = await api.get("/resume/pdf", { responseType: "blob" });
+      const url = URL.createObjectURL(data);
       const a = document.createElement("a");
       a.href = url; a.download = `${(resume?.name || "resume").replace(/\s+/g, "_")}_Resume.pdf`;
       document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-    } catch { toast.error("PDF download failed"); }
+    } catch (err) { console.error("resume: pdf download failed", err); toast.error("PDF download failed"); }
   };
 
   if (loading) return <div className="font-mono-ui text-xs text-neutral-500">LOADING RESUME...</div>;
@@ -110,7 +107,7 @@ export default function ResumePage() {
           <div className="space-y-3">
             <div className="mono-label">SKILL GROUPS (comma separated items)</div>
             {(r.skills || []).map((g, i) => (
-              <div key={i} className="grid md:grid-cols-[160px_1fr] gap-2">
+              <div key={`${g.group}-${i}`} className="grid md:grid-cols-[160px_1fr] gap-2">
                 <input className="input-dark" value={g.group || ""} onChange={(e) => {
                   const s = [...r.skills]; s[i] = { ...g, group: e.target.value }; set({ skills: s });
                 }} data-testid={`edit-skill-group-${i}`} />
@@ -123,7 +120,7 @@ export default function ResumePage() {
           <div className="space-y-3">
             <div className="mono-label">PROJECT BULLETS (one per line)</div>
             {(r.projects || []).map((p, i) => (
-              <div key={i} className="space-y-1">
+              <div key={`${p.name}-${i}`} className="space-y-1">
                 <div className="text-sm">{p.name}</div>
                 <textarea rows={3} className="input-dark w-full" value={lines(p.bullets)} onChange={(e) => {
                   const ps = [...r.projects]; ps[i] = { ...p, bullets: toLines(e.target.value) }; set({ projects: ps });
@@ -140,7 +137,7 @@ export default function ResumePage() {
             <h2 className="resume-name">{r.name}</h2>
             <div className="resume-contact">
               {[r.email, r.phone, r.location].filter(Boolean).join("  |  ")}
-              {(r.links || []).filter((l) => l.url).map((l, i) => <span key={i}>{"  |  "}{l.label}: {l.url}</span>)}
+              {(r.links || []).filter((l) => l.url).map((l, i) => <span key={`${l.label}-${i}`}>{"  |  "}{l.label}: {l.url}</span>)}
             </div>
             {r.headline && <div className="resume-contact italic">{r.headline}</div>}
           </div>
@@ -151,7 +148,7 @@ export default function ResumePage() {
           {(r.education || []).length > 0 && (
             <Sec title="Education">
               {r.education.map((e, i) => (
-                <div key={i} className="mb-1">
+                <div key={`${e.institution}-${i}`} className="mb-1">
                   <div className="flex justify-between gap-3">
                     <span><b>{e.institution}</b>{e.degree ? ` — ${e.degree}` : ""}</span>
                     <span className="whitespace-nowrap">{[e.score, e.period].filter(Boolean).join(" · ")}</span>
@@ -164,16 +161,16 @@ export default function ResumePage() {
 
           {(r.skills || []).length > 0 && (
             <Sec title="Skills">
-              {r.skills.map((g, i) => <div key={i}><b>{g.group}:</b> {(g.items || []).join(", ")}</div>)}
+              {r.skills.map((g, i) => <div key={`${g.group}-${i}`}><b>{g.group}:</b> {(g.items || []).join(", ")}</div>)}
             </Sec>
           )}
 
           {(r.projects || []).length > 0 && (
             <Sec title="Projects">
               {r.projects.map((p, i) => (
-                <div key={i} className="mb-1.5">
+                <div key={`${p.name}-${i}`} className="mb-1.5">
                   <div><b>{p.name}</b>{p.tech ? <span className="resume-dim"> | {p.tech}</span> : null}</div>
-                  <ul className="resume-list">{(p.bullets || []).map((b, j) => <li key={j}>{b}</li>)}</ul>
+                  <ul className="resume-list">{(p.bullets || []).map((b, j) => <li key={`${b}-${j}`}>{b}</li>)}</ul>
                 </div>
               ))}
             </Sec>
@@ -182,7 +179,7 @@ export default function ResumePage() {
           {[["coursework", "Relevant Coursework"], ["achievements", "Achievements"], ["extras", "Extras"]].map(([k, title]) => (
             (r[k] || []).length > 0 && (
               <Sec key={k} title={title}>
-                <ul className="resume-list">{r[k].map((v, i) => <li key={i}>{v}</li>)}</ul>
+                <ul className="resume-list">{r[k].map((v, i) => <li key={`${v}-${i}`}>{v}</li>)}</ul>
               </Sec>
             )
           ))}

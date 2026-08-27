@@ -43,8 +43,10 @@ export default function FounderPage() {
         setRm(a.data.roadmap); if (a.data.roadmap?.idea) setIdea(a.data.roadmap.idea);
         setEntries(b.data.entries || []); setCounts(b.data.counts || {});
         setInsights(c.data.insights);
-      } catch {} finally { setLoading(false); }
+      } catch (err) { console.error("founder: initial load failed", err); } finally { setLoading(false); }
     })();
+    // mount-only fetch
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const generate = async () => {
@@ -112,7 +114,7 @@ export default function FounderPage() {
               <div className="mono-label mb-3">FIRST WEEK</div>
               <div className="grid md:grid-cols-3 gap-px bg-white/10">
                 {rm.first_week.map((f, i) => (
-                  <div key={i} className="bg-black p-4" data-testid={`founder-week-${i}`}>
+                  <div key={`${f}-${i}`} className="bg-black p-4" data-testid={`founder-week-${i}`}>
                     <div className="font-mono-ui text-xs text-neutral-500 mb-2">0{i + 1}</div>
                     <div className="text-sm">{f}</div>
                   </div>
@@ -243,7 +245,7 @@ export default function FounderPage() {
               <div className="mono-label mb-3">NEXT EXPERIMENTS</div>
               <div className="grid md:grid-cols-3 gap-px bg-white/10">
                 {insights.next_experiments.map((x, i) => (
-                  <div key={i} className="bg-black p-4" data-testid={`next-exp-${i}`}>
+                  <div key={`${x.title}-${i}`} className="bg-black p-4" data-testid={`next-exp-${i}`}>
                     <div className="flex justify-between mb-2"><div className="font-mono-ui text-xs text-neutral-500">EXP {i + 1}</div><div className="font-mono-ui text-xs">{x.effort}</div></div>
                     <div className="font-display text-base mb-1">{x.title}</div>
                     <div className="text-sm text-neutral-400">{x.why}</div>
@@ -264,7 +266,7 @@ function Block({ title, items, box }) {
   return (
     <div className={box ? "bg-black p-4" : ""}>
       <div className="mono-label mb-2 text-neutral-500">{title}</div>
-      <ul className="text-sm text-white/80 space-y-1">{items.map((x, i) => <li key={i}>· {x}</li>)}</ul>
+      <ul className="text-sm text-white/80 space-y-1">{items.map((x, i) => <li key={`${x}-${i}`}>· {x}</li>)}</ul>
     </div>
   );
 }

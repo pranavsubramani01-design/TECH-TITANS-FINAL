@@ -27,12 +27,12 @@ export default function AlumniPage() {
   };
 
   const loadMatches = async () => {
-    try { const { data } = await api.get("/alumni/matches"); setMatches(data.matches || []); setYou(data.you); } catch {}
+    try { const { data } = await api.get("/alumni/matches"); setMatches(data.matches || []); setYou(data.you); } catch (err) { console.error("alumni: matches failed", err); }
   };
 
   useEffect(() => {
     (async () => {
-      try { await loadList(); await loadMatches(); } catch {}
+      try { await loadList(); await loadMatches(); } catch (err) { console.error("alumni: initial load failed", err); }
       finally { setLoading(false); }
     })();
     // eslint-disable-next-line
@@ -56,7 +56,7 @@ export default function AlumniPage() {
 
   const open = async (a) => {
     setSel(a); setCmp(null);
-    try { const { data } = await api.get(`/alumni/${a.id}/compare`); setCmp(data.compare); } catch {}
+    try { const { data } = await api.get(`/alumni/${a.id}/compare`); setCmp(data.compare); } catch (err) { console.debug("alumni: no cached overlay", err); }
   };
 
   const compare = async () => {
@@ -105,7 +105,7 @@ export default function AlumniPage() {
                 </div>
                 <div className="font-display text-lg">{a.name}</div>
                 <div className="text-sm text-neutral-400 mb-3">{a.role} @ {a.company} · {a.batch}</div>
-                <ul className="text-xs text-neutral-500 space-y-1">{(a.match_reasons || []).map((r, j) => <li key={j}>· {r}</li>)}</ul>
+                <ul className="text-xs text-neutral-500 space-y-1">{(a.match_reasons || []).map((r, j) => <li key={`${r}-${j}`}>· {r}</li>)}</ul>
               </button>
             ))}
           </div>
@@ -183,9 +183,9 @@ export default function AlumniPage() {
                       <div className="flex justify-between items-baseline mb-2 gap-3">
                         <div className="font-display text-base">YEAR {y.year} · {y.headline}</div>
                       </div>
-                      <ul className="text-sm text-white/80 space-y-1 mb-2">{(y.did || []).map((d, j) => <li key={j}>· {d}</li>)}</ul>
+                      <ul className="text-sm text-white/80 space-y-1 mb-2">{(y.did || []).map((d, j) => <li key={`${d}-${j}`}>· {d}</li>)}</ul>
                       {(y.skills || []).length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 mb-2">{y.skills.map((s, j) => <span key={j} className="px-2 py-0.5 border border-white/15 font-mono-ui text-[10px]">{s}</span>)}</div>
+                        <div className="flex flex-wrap gap-1.5 mb-2">{y.skills.map((s, j) => <span key={`${s}-${j}`} className="px-2 py-0.5 border border-white/15 font-mono-ui text-[10px]">{s}</span>)}</div>
                       )}
                       {y.milestone && <div className="text-xs text-neutral-500">MILESTONE — {y.milestone}</div>}
                     </div>
@@ -205,7 +205,7 @@ export default function AlumniPage() {
               {(sel.final_skills || []).length > 0 && (
                 <div>
                   <div className="mono-label mb-2">SKILLS AT OFFER</div>
-                  <div className="flex flex-wrap gap-2">{sel.final_skills.map((s, i) => <span key={i} className="px-2 py-1 border border-white/15 font-mono-ui text-xs">{s}</span>)}</div>
+                  <div className="flex flex-wrap gap-2">{sel.final_skills.map((s, i) => <span key={`${s}-${i}`} className="px-2 py-1 border border-white/15 font-mono-ui text-xs">{s}</span>)}</div>
                 </div>
               )}
 
@@ -230,7 +230,7 @@ export default function AlumniPage() {
                         <div className="mono-label mb-2">MOVES THEY MADE THAT YOU HAVEN'T</div>
                         <div className="space-y-px bg-white/10">
                           {cmp.missing_moves.map((m, i) => (
-                            <div key={i} className="bg-black p-4" data-testid={`missing-move-${i}`}>
+                            <div key={`${m.move}-${i}`} className="bg-black p-4" data-testid={`missing-move-${i}`}>
                               <div className="flex justify-between gap-3 mb-1">
                                 <div className="font-display text-base">{m.move}</div>
                                 <div className="font-mono-ui text-[10px] text-neutral-500 whitespace-nowrap">{m.when}</div>
@@ -277,7 +277,7 @@ function ListBlock({ title, items }) {
   return (
     <div>
       <div className="mono-label mb-2 text-neutral-500">{title}</div>
-      <ul className="text-sm text-white/80 space-y-1">{items.map((x, i) => <li key={i}>· {x}</li>)}</ul>
+      <ul className="text-sm text-white/80 space-y-1">{items.map((x, i) => <li key={`${x}-${i}`}>· {x}</li>)}</ul>
     </div>
   );
 }

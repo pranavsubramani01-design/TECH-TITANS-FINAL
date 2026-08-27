@@ -180,7 +180,7 @@ async def llm_json(system: str, user_prompt: str, session_id: str, retries: int 
         try:
             resp = await chat.send_message(UserMessage(text=user_prompt))
         except Exception as ex:
-            raise _ai_error(ex)
+            raise _ai_error(ex) from ex
         text = resp if isinstance(resp, str) else str(resp)
         last_text = text
         # strip code fences
@@ -219,10 +219,11 @@ async def llm_text(system: str, user_prompt: str, session_id: str) -> str:
         session_id=session_id,
         system_message=system,
     ).with_model("anthropic", "claude-sonnet-4-6")
+    resp: Any = None
     try:
         resp = await chat.send_message(UserMessage(text=user_prompt))
     except Exception as ex:
-        raise _ai_error(ex)
+        raise _ai_error(ex) from ex
     return resp if isinstance(resp, str) else str(resp)
 
 
@@ -1429,6 +1430,51 @@ async def alumni_list(q: str = "", role: str = "", company: str = "", path_type:
     return {"alumni": items, "total": len(all_items), "facets": facets}
 
 
+def _role_score(target: str, role: str) -> tuple[int, Optional[str]]:
+    if not target or not role:
+        return 0, None
+    if target.lower() in role.lower() or role.lower() in target.lower():
+        return 40, f"Landed the exact role you're aiming for ({role})"
+    if set(target.lower().split()) & set(role.lower().split()):
+        return 22, f"Adjacent role to your target ({role})"
+    return 0, None
+
+
+def _cgpa_score(mine: Optional[float], theirs: Any) -> tuple[int, Optional[str]]:
+    if not mine or not isinstance(theirs, (int, float)):
+        return 0, None
+    delta = abs(float(theirs) - mine)
+    if delta <= 0.4:
+        return 20, f"Almost identical CGPA band ({theirs} vs your {mine})"
+    if delta <= 0.9:
+        return 12, f"Similar CGPA band ({theirs} vs your {mine})"
+    return 0, None
+
+
+def _score_alumnus(a: dict, target: str, my_branch: str, cgpa: Optional[float], my_skills: set) -> dict:
+    score = 0
+    reasons: List[str] = []
+    for pts, reason in [
+        _role_score(target, str(a.get("role") or "")),
+        _cgpa_score(cgpa, a.get("cgpa")),
+    ]:
+        score += pts
+        if reason:
+            reasons.append(reason)
+    if my_branch and my_branch in str(a.get("branch") or "").lower():
+        score += 18
+        reasons.append(f"Same branch ({a.get('branch')})")
+    overlap = my_skills & {str(x).lower() for x in (a.get("final_skills") or [])}
+    if overlap:
+        score += min(18, 6 * len(overlap))
+        reasons.append("Shares your current skills: " + ", ".join(sorted(overlap)[:3]))
+    if a.get("path_type") in ("off-campus", "on-campus"):
+        score += 4
+    if not reasons:
+        reasons.append("Different starting point — useful as a contrast path")
+    return {**a, "match_score": min(99, score), "match_reasons": reasons[:3]}
+
+
 @api.get("/alumni/matches")
 async def alumni_matches(user=Depends(current_user)):
     pdata = (await db.profiles.find_one({"user_id": user["id"]}) or {}).get("data", {})
@@ -1446,39 +1492,7 @@ async def alumni_matches(user=Depends(current_user)):
     my_skills = {str(s.get("name", "")).lower() for s in skills} | {str(x).lower() for x in (pdata.get("current_skills") or [])}
 
     alumni = await db.alumni.find({}, {"_id": 0}).to_list(300)
-    scored = []
-    for a in alumni:
-        score, reasons = 0, []
-        role = str(a.get("role") or "")
-        if target and (target.lower() in role.lower() or role.lower() in target.lower()):
-            score += 40
-            reasons.append(f"Landed the exact role you're aiming for ({role})")
-        elif target and set(target.lower().split()) & set(role.lower().split()):
-            score += 22
-            reasons.append(f"Adjacent role to your target ({role})")
-        if my_branch and my_branch in str(a.get("branch") or "").lower():
-            score += 18
-            reasons.append(f"Same branch ({a.get('branch')})")
-        a_cgpa = a.get("cgpa")
-        if cgpa and isinstance(a_cgpa, (int, float)):
-            delta = abs(float(a_cgpa) - cgpa)
-            if delta <= 0.4:
-                score += 20
-                reasons.append(f"Almost identical CGPA band ({a_cgpa} vs your {cgpa})")
-            elif delta <= 0.9:
-                score += 12
-                reasons.append(f"Similar CGPA band ({a_cgpa} vs your {cgpa})")
-        a_skills = {str(x).lower() for x in (a.get("final_skills") or [])}
-        overlap = my_skills & a_skills
-        if overlap:
-            score += min(18, 6 * len(overlap))
-            reasons.append("Shares your current skills: " + ", ".join(sorted(overlap)[:3]))
-        if a.get("path_type") in ("off-campus", "on-campus"):
-            score += 4
-        if not reasons:
-            reasons.append("Different starting point — useful as a contrast path")
-        scored.append({**a, "match_score": min(99, score), "match_reasons": reasons[:3]})
-
+    scored = [_score_alumnus(a, target, my_branch, cgpa, my_skills) for a in alumni]
     scored.sort(key=lambda x: -x["match_score"])
     return {"matches": scored[:6], "you": {"target": target, "cgpa": cgpa, "branch": pdata.get("branch"), "skills": sorted(my_skills)[:20]}}
 

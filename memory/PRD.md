@@ -75,7 +75,21 @@ See /app/memory/test_credentials.md
 - Hardening: `llm_json`/`llm_text` now wrap provider errors — budget exhaustion returns a clean **503 with a top-up message** instead of a raw 500/502 Cloudflare page; AI pages surface `detail` in the toast.
 - **BLOCKED**: the Emergent LLM key budget is exhausted, so the cohort could not be generated or verified end-to-end. Non-AI paths verified (list/facets/matches return 200 with empty cohort; page renders empty state). Re-run "BUILD ALUMNI COHORT" after topping up.
 
-- P1: Alumni intelligence (database, matching, trajectories, alumni roadmap view) — BUILT in iteration 7, needs AI verification after key top-up
+## Iteration 8 — Code-quality pass — 2026-06
+- `llm_json`/`llm_text` chain provider errors with `raise ... from ex`; `resp` explicitly initialised.
+- `alumni_matches` complexity split into `_role_score`, `_cgpa_score`, `_score_alumnus` (response shape unchanged).
+- All 30 empty JS catch blocks now log via `console.error` (data loads) or `console.debug` (Web Speech API stop/start races).
+- Array-index React keys replaced with content-composite keys across Resume, Alumni, Founder, Roadmap and Weekly Review lists.
+- `ResumePage` PDF download no longer reads the JWT from localStorage — it goes through the shared axios client with `responseType: 'blob'`.
+- Hook deps: `WeeklyReview.load` wrapped in `useCallback` and added to its effect; mount-only fetches explicitly marked.
+- Test suite: boolean assertions use `==`; the Resume fixture now seeds via `PUT /api/resume` instead of calling the LLM.
+- Verified by testing agent (iteration_7.json): **zero regressions**, 51/51 non-AI backend tests pass, all touched UI flows green. Remaining pytest failures are the expected 503s from the exhausted LLM key.
+- NOTE (accepted, not changed): JWT is still stored in localStorage. Moving to httpOnly cookies is a full auth rework (backend cookie issuance, CSRF handling, test harness changes) and is tracked as a P2 item.
+
+## Backlog / next
+- P0: Verify Alumni Intelligence end-to-end once the LLM key is topped up (seed cohort → matches → overlay)
+- P2: Auth hardening — move JWT to httpOnly cookies + CSRF token
+
 - P1: Career Explorer depth (per-career roadmaps + market insights, currently a browse list)
 - P2: Admin dashboard, notifications, streaming AI, resume variants per company
 - P2 (tech debt): server.py is ~1330 lines — split into routers/{search,resume,founder}.py

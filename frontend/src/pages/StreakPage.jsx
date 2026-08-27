@@ -6,6 +6,8 @@ import { Flame, Lock, Trophy } from "lucide-react";
 export default function StreakPage() {
   const [d, setD] = useState(null);
   const nav = useNavigate();
+  // mount-only fetch
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { (async () => { const { data } = await api.get("/streak"); setD(data); })(); }, []);
   if (!d) return <div className="text-neutral-500 font-mono-ui text-xs">LOADING...</div>;
 

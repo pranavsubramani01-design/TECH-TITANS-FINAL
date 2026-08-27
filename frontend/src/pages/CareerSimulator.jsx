@@ -15,7 +15,7 @@ export default function CareerSimulator() {
       try {
         const { data } = await api.get("/ai/simulator/history");
         if (data.simulations?.[0]) { setSim(data.simulations[0].result); setForm({ ...form, ...data.simulations[0].input }); }
-      } catch {}
+      } catch (err) { console.error("simulator: load failed", err); }
     })();
     // eslint-disable-next-line
   }, []);

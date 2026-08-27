@@ -67,7 +67,7 @@ export default function ForgeDrawer({ open, onClose, autoStartVoice = false, ini
   const stopMicViz = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (streamRef.current) { streamRef.current.getTracks().forEach((t) => t.stop()); streamRef.current = null; }
-    if (audioCtxRef.current) { try { audioCtxRef.current.close(); } catch {} audioCtxRef.current = null; }
+    if (audioCtxRef.current) { try { audioCtxRef.current.close(); } catch (err) { console.debug("forge: audio close failed", err); } audioCtxRef.current = null; }
     analyserRef.current = null;
     setLevel(0);
   }, []);
@@ -180,7 +180,7 @@ export default function ForgeDrawer({ open, onClose, autoStartVoice = false, ini
   // cleanup on close
   useEffect(() => {
     if (!open) {
-      try { recogRef.current?.stop(); } catch {}
+      try { recogRef.current?.stop(); } catch (err) { console.debug("forge: recognition stop failed", err); }
       if (synth) synth.cancel();
       setListening(false); setSpeaking(false);
       stopMicViz();

@@ -23,7 +23,7 @@ export default function useWakeWord({ enabled, onWake }) {
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const t = (ev.results[i][0]?.transcript || "").toLowerCase().trim();
         if (triggers.some((k) => t.includes(k))) {
-          try { r.stop(); } catch {}
+          try { r.stop(); } catch (err) { console.debug("wake: stop failed", err); }
           onWake?.();
           break;
         }
@@ -32,21 +32,21 @@ export default function useWakeWord({ enabled, onWake }) {
     r.onerror = () => {
       // recover after short delay unless disabled
       if (!stoppedRef.current) {
-        restartTimer.current = setTimeout(() => { try { r.start(); } catch {} }, 1500);
+        restartTimer.current = setTimeout(() => { try { r.start(); } catch (err) { console.debug("wake: restart failed", err); } }, 1500);
       }
     };
     r.onend = () => {
       if (!stoppedRef.current) {
-        restartTimer.current = setTimeout(() => { try { r.start(); } catch {} }, 400);
+        restartTimer.current = setTimeout(() => { try { r.start(); } catch (err) { console.debug("wake: restart failed", err); } }, 400);
       }
     };
-    try { r.start(); } catch {}
+    try { r.start(); } catch (err) { console.debug("wake: start failed", err); }
     recogRef.current = r;
 
     return () => {
       stoppedRef.current = true;
       if (restartTimer.current) clearTimeout(restartTimer.current);
-      try { r.stop(); } catch {}
+      try { r.stop(); } catch (err) { console.debug("wake: cleanup stop failed", err); }
     };
   }, [enabled, onWake]);
 }

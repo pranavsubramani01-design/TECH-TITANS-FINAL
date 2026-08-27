@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { toast } from "sonner";
@@ -11,10 +11,10 @@ export default function WeeklyReview() {
   const [gen, setGen] = useState(false);
   const [applying, setApplying] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try { const { data } = await api.get("/ai/weekly-review/latest"); setRev(data.review); } finally { setLoading(false); }
-  };
-  useEffect(() => { load(); }, []);
+  }, []);
+  useEffect(() => { load(); }, [load]);
 
   const generate = async () => {
     setGen(true);
@@ -67,7 +67,7 @@ export default function WeeklyReview() {
           {r.adjustments?.length > 0 && (
             <div className="card-surface p-6" data-testid="rev-adjustments">
               <div className="mono-label mb-3">// suggested adjustments</div>
-              <ul className="space-y-1 text-white/90 text-sm">{r.adjustments.map((a, i) => <li key={i}>· {a}</li>)}</ul>
+              <ul className="space-y-1 text-white/90 text-sm">{r.adjustments.map((a, i) => <li key={`${a}-${i}`}>· {a}</li>)}</ul>
             </div>
           )}
 
@@ -85,7 +85,7 @@ export default function WeeklyReview() {
               </div>
               <div className="space-y-2">
                 {r.roadmap_changes.map((c, i) => (
-                  <div key={i} className="p-3 border border-white/10 flex justify-between gap-4" data-testid={`rev-change-${i}`}>
+                  <div key={`${c.node_id}-${i}`} className="p-3 border border-white/10 flex justify-between gap-4" data-testid={`rev-change-${i}`}>
                     <div>
                       <div className="font-mono-ui text-sm">{c.node_id} → <span className="text-white">{c.new_status?.replace("_"," ").toUpperCase()}</span></div>
                       <div className="text-neutral-400 text-xs mt-1">{c.reason}</div>
@@ -107,7 +107,7 @@ function RevList({ icon: Icon, label, items, testid }) {
       <div className="mono-label mb-3 flex items-center gap-2 text-neutral-500"><Icon className="w-3 h-3"/>{label}</div>
       {(items || []).length === 0 && <div className="text-neutral-600 text-xs">—</div>}
       <ul className="space-y-1 text-sm text-white/85">
-        {(items || []).map((x, i) => <li key={i}>· {x}</li>)}
+        {(items || []).map((x, i) => <li key={`${x}-${i}`}>· {x}</li>)}
       </ul>
     </div>
   );

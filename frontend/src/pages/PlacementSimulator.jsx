@@ -28,8 +28,10 @@ export default function PlacementSimulator() {
           setRole(data.input?.role || "");
           setCompanies(data.input?.companies || []);
         }
-      } catch {}
+      } catch (err) { console.error("placement: load failed", err); }
     })();
+    // mount-only fetch
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const addCompany = (c) => {

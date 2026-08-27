@@ -29,7 +29,7 @@ export default function Onboarding() {
         const { data: r } = await api.get("/profile");
         setData(r.profile?.data || {});
         setStep(r.user?.onboarding_step || 0);
-      } catch {}
+      } catch (err) { console.error("onboarding: load failed", err); }
     })();
   }, []);
 

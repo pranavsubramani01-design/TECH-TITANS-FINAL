@@ -18,7 +18,7 @@ export default function Interview() {
         const { data } = await api.get("/ai/interview/history");
         if ((data.messages || []).length === 0) start();
         else setMsgs(data.messages);
-      } catch {}
+      } catch (err) { console.error("interview: load failed", err); }
     })();
   }, []);
 

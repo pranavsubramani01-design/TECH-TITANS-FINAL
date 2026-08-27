@@ -188,7 +188,7 @@ export default function RoadmapPage() {
                     {[["ACADEMICS", s.academics], ["SKILLS", s.skills], ["PROJECTS", s.projects], ["CAREER", s.career]].map(([k, arr]) => (arr || []).length > 0 && (
                       <div key={k} className="mb-3">
                         <div className="mono-label mb-1 text-neutral-500">{k}</div>
-                        <ul className="text-sm text-white/80 space-y-1">{arr.map((x, j) => <li key={j}>· {x}</li>)}</ul>
+                        <ul className="text-sm text-white/80 space-y-1">{arr.map((x, j) => <li key={`${x}-${j}`}>· {x}</li>)}</ul>
                       </div>
                     ))}
                   </div>
@@ -223,7 +223,7 @@ export default function RoadmapPage() {
               {(sel.skills || []).length > 0 && (
                 <div>
                   <div className="mono-label mb-2">SKILLS DEVELOPED</div>
-                  <div className="flex flex-wrap gap-2">{sel.skills.map((s, i) => <span key={i} className="px-2 py-1 border border-white/15 text-xs font-mono-ui">{s}</span>)}</div>
+                  <div className="flex flex-wrap gap-2">{sel.skills.map((s, i) => <span key={`${s}-${i}`} className="px-2 py-1 border border-white/15 text-xs font-mono-ui">{s}</span>)}</div>
                 </div>
               )}
               {(sel.tasks || []).length > 0 && (
