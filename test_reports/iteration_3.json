@@ -1,0 +1,29 @@
+{
+  "summary": "PathForge AI iteration 3 backend re-verification of the shape-drift fix for /api/ai/generate-roadmap. Ran the full backend suite: 56/56 tests PASSED in 345.97s. Critical regression checks: TestAIRepeated::test_generate_roadmap_four_times (4 consecutive generate-roadmap calls) passed — every response was a JSON object with target_career, years (len==4), nodes (12-16 items). TestAIRepeated::test_generate_profile_twice passed with >=3 career_directions on both runs. TestPlanner::test_generate and test_get_today both returned 200 with a valid plan.tasks list. All other suites (Auth, Onboarding, Interview, AIGeneration full flow, Forge chat+history+nudge, Skills/Academics/Projects/Hobbies CRUD, Checkin, Careers explorer, Aggregates dashboard+skill-gap, Authorization guards) also passed. The llm_json require_keys retry + get_roadmap_dict/get_profile_dict defensive helpers + unique session_id per generate-roadmap call are effective — zero shape-drift observed across 4 back-to-back roadmap generations for the same user.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "N/A (test infra)", "issue": "Public preview URL (career-roadmap-119.preview.emergentagent.com) was returning ReadTimeout on all requests during this run. Switched base_url fixture to http://localhost:8001 to unblock testing. Main agent should verify edge/ingress routing separately."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_pathforge.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Investigate why the public preview URL was timing out during this run (unrelated to the shape-drift fix — likely edge/ingress). Localhost:8001 is healthy."
+  ],
+  "critical_code_review_comments": [
+    "Shape-drift fix is solid: llm_json require_keys + retry with stricter prompt, plus get_roadmap_dict/get_profile_dict coercion at read sites, plus timestamp-suffixed session_id all working together. 4/4 roadmap runs produced dict with correct schema.",
+    "Class-scoped pytest fixture defined as instance method deprecation warning in TestAIGeneration._seed — cosmetic, will break in pytest 10; consider @classmethod.",
+    "server.py line count should still be tracked (was 682 last iteration + new helpers); split into routers/ when it approaches 800."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_pathforge.py (bumped roadmap regression from 3x to 4x per spec; switched base_url fixture to LOCAL_URL because public preview URL was ReadTimeout-ing)"
+  ],
+  "success_rate": {"backend": "100% (56/56)", "frontend": "not tested this iteration (backend-only per request)"},
+  "test_credentials": "Tests self-signup a fresh user per session. demo.student@pathforge.ai / PathForge@2026 available but not required.",
+  "seed_data_creation": "None persisted. Test-only signup users and TEST_ prefixed CRUD data.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Shape-drift regression is fully closed at the backend level (4x consecutive roadmap regen + planner flow all green). If re-testing, keep base_url pointed at localhost:8001 for AI calls (>=180s timeout). Public preview URL edge was flaky during this run — check ingress/kubernetes routing if it recurs. Full 56-test suite completes in ~6 minutes.",
+  "rca of the issue": "N/A this iteration — previous shape-drift bug is fixed and verified. Only new observation: public preview edge URL was returning ReadTimeout for all requests; mitigation was to route tests to http://localhost:8001 (safe per system prompt for internal backend testing). Backend service itself is healthy."
+}

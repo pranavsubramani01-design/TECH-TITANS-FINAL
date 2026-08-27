@@ -1,0 +1,140 @@
+{
+  "theme": "dark",
+  "archetype": "Swiss & High-Contrast (Monochromatic Brutalism + Retro-Futurism)",
+  "design_philosophy": "PathForge AI acts as a stealthy, hyper-intelligent 'Operating System' for a student's career. The aesthetic is strictly Black and Dark Grey, evoking the feeling of a premium, hyper-focused command center (Jarvis-like). No distractions, no vivid colors. Depth is created purely through typography scaling, 1px grey borders, and subtle white glow effects.",
+  "colors": {
+    "background": {
+      "base": "#000000",
+      "surface": "#0A0A0A",
+      "surface_elevated": "#141414",
+      "surface_highest": "#1F1F1F"
+    },
+    "text": {
+      "primary": "#FFFFFF",
+      "secondary": "#A3A3A3",
+      "tertiary": "#737373",
+      "disabled": "#404040"
+    },
+    "border": {
+      "subtle": "rgba(255, 255, 255, 0.05)",
+      "default": "rgba(255, 255, 255, 0.1)",
+      "strong": "rgba(255, 255, 255, 0.2)"
+    },
+    "ai_accent": {
+      "glow": "rgba(255, 255, 255, 0.15)",
+      "active": "#FFFFFF",
+      "pulse": "#404040"
+    },
+    "chart_palettes": {
+      "primary": "#FFFFFF",
+      "secondary": "#B3B3B3",
+      "tertiary": "#666666",
+      "quaternary": "#333333"
+    }
+  },
+  "typography": {
+    "headings": {
+      "font_family": "Outfit, sans-serif",
+      "weights": ["300", "500", "700"],
+      "styling": "tracking-tight, leading-none"
+    },
+    "body": {
+      "font_family": "IBM Plex Sans, sans-serif",
+      "weights": ["400", "500"],
+      "styling": "leading-relaxed"
+    },
+    "data_and_ai": {
+      "font_family": "JetBrains Mono, monospace",
+      "weights": ["400", "600"],
+      "usage": "Used for Forge AI (Jarvis) chat text, roadmap nodes, CGPA metrics, and skill-gap percentages."
+    },
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tighter font-light",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight font-medium",
+      "h3": "text-xl sm:text-2xl font-medium",
+      "h4": "text-lg sm:text-xl font-medium",
+      "body": "text-base text-[#A3A3A3]",
+      "labels_mono": "text-xs tracking-[0.2em] uppercase font-mono text-[#737373]"
+    }
+  },
+  "visual_enhancers": {
+    "textures": "Use subtle CSS grain/noise overlays over the #000000 base to kill digital flatness. It should look like matte metal.",
+    "borders": "Exposed grid borders. Use `border-collapse` style where cards touch, or 1px `border-white/10` to delineate zones.",
+    "glow": "Use drop-shadow on active states instead of background colors. Example: `drop-shadow-[0_0_12px_rgba(255,255,255,0.2)]` for active roadmap nodes.",
+    "surfaces": "No heavy glassmorphism for data panels. Use flat #0A0A0A solid surfaces to ensure data charts do not refract visually."
+  },
+  "component_rules": {
+    "buttons": "Sharp edges (rounded-none or max rounded-sm). Flat black background, 1px solid white border, white text. On hover: Invert to white background and black text.",
+    "inputs": "Shadcn UI customized. bg-[#0A0A0A], border-white/10, focus:ring-1 focus:ring-white. No blue focus rings.",
+    "cards": "Cardless or flat rectangular. Generous padding (`p-6` or `p-8`). Use `border border-white/10`.",
+    "charts": "Shadcn/Recharts. STRICTLY monochromatic. Use varying opacities of white/grey for bar and radar charts.",
+    "forge_ai_companion": "A fixed drawer/sidebar (Jarvis style). Pure black background, monospace typography. Proactive suggestions pulse subtly (`animate-pulse` on a 1px border ring).",
+    "roadmap_canvas": "Node-based visual map. Unlocked nodes are bright white. Locked nodes are #333333. Paths between them are dashed 1px lines (`border-white/20`). Add a custom cursor for panning.",
+    "student_profile": "Radar charts using `#FFFFFF` for the polygon stroke, and `rgba(255,255,255,0.1)` for the fill.",
+    "general": "Do NOT use HTML components for advanced user interactions. Use Shadcn components for Select, Tabs, Dialogs."
+  },
+  "grids": {
+    "dashboard_bento": "High-density Mode B. `grid-cols-1 md:grid-cols-3 lg:grid-cols-4`. Gap `gap-4` or `gap-6`. Every pixel utilized. The 'Today\\'s Plan' spans 2 columns, 'Forge AI Suggestions' spans 1 tall column.",
+    "landing_hero": "Mode A (Tetris Grid). Asymmetrical layout prioritizing visual tension."
+  },
+  "layouts": {
+    "navigation": "Sticky top nav (`z-50`). Solid `bg-black/90` with `backdrop-blur-md` and a 1px `border-b border-white/10`.",
+    "spacing": "Use generous scales: `p-6`, `p-8`, `p-12`. Do not cram content.",
+    "alignment": "Left-align data, labels, and forms. Center-align only the main landing page hero statement."
+  },
+  "motion": {
+    "transitions": "Use specific transitions. Example: `transition-transform duration-300 ease-out`, NEVER `transition-all`.",
+    "hover_states": "Must invert colors or noticeably shift lightness (e.g., text from #A3A3A3 to #FFFFFF, border from white/10 to white/40).",
+    "entrance": "Staggered fade-up for dashboard widgets on load.",
+    "ai_active": "Subtle breathing/pulsing effect (`scale 1.0` to `1.02` with 2s duration) on the Forge AI notification icon."
+  },
+  "accessibility": {
+    "contrast": "Strict adherence. White text on black is maximum contrast. Grey text (#A3A3A3) on #0A0A0A passes WCAG AA.",
+    "focus": "Focus states must have a sharp 1px white outline with an offset (`focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-black`).",
+    "testing_attributes": "All interactive elements MUST include a `data-testid` attribute (e.g., `data-testid=\"roadmap-node-1\"`, `data-testid=\"forge-ai-drawer\"`)."
+  },
+  "media": {
+    "hero_overlay": "Images must have heavy `bg-black/70` to `bg-black/80` overlays so the bright white text remains highly legible.",
+    "treatment": "Desaturate images slightly (grayscale filter) to match the black and grey aesthetic."
+  },
+  "3d_libraries": {
+    "recommendation": "React Flow (for the node-based roadmap canvas). Visx or Recharts for the Student Intelligence Profile radar/bar charts.",
+    "installation": "yarn add reactflow recharts lucide-react @phosphor-icons/react"
+  },
+  "image_urls": {
+    "landing_hero_background": {
+      "url": "https://images.unsplash.com/photo-1650661926447-9efb2610f64c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA4Mzl8MHwxfHNlYXJjaHwyfHxjb2xsZWdlJTIwc3R1ZGVudCUyMGxhdGUlMjBuaWdodCUyMGRhcmslMjByb29tJTIwZm9jdXNlZCUyMGxhcHRvcHxlbnwwfHx8fDE3ODc4Mzk1OTF8MA&ixlib=rb-4.1.0&q=85",
+      "description": "College student focused late at night, perfectly encapsulating the target audience's grind.",
+      "usage": "Landing page hero background with a very heavy black gradient overlay."
+    },
+    "ai_intelligence_bg": {
+      "url": "https://images.unsplash.com/photo-1763805508094-901f2a79ff77?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzZ8MHwxfHNlYXJjaHwzfHxwcmVtaXVtJTIwbHV4dXJ5JTIwbWluaW1hbGlzdGljJTIwZGFyayUyMGdyZXklMjBhYnN0cmFjdHxlbnwwfHx8fDE3ODc4Mzk1OTB8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Abstract dark metallic curves.",
+      "usage": "Use as a subtle textured background inside the Forge AI companion drawer or the Student Intelligence Profile cards."
+    },
+    "roadmap_texture": {
+      "url": "https://images.unsplash.com/photo-1464639351491-a172c2aa2911?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA0MTJ8MHwxfHNlYXJjaHwzfHxhYnN0cmFjdCUyMGJsYWNrJTIwYW5kJTIwZGFyayUyMGdyZXklMjB0ZWNobm9sb2d5JTIwbm9kZXN8ZW58MHx8fHwxNzg3ODM5NTkwfDA&ixlib=rb-4.1.0&q=85",
+      "description": "Black and gray dotted surface.",
+      "usage": "Background texture for the interactive Roadmap canvas (set to 5% opacity)."
+    }
+  },
+  "instructions_to_main_agent": [
+    "Do NOT use gradients unless it's a fade-to-black mask. Adhere strictly to the black and dark grey palette.",
+    "For the roadmap node canvas, use standard DOM elements inside a pannable container if React Flow is too complex, but maintain the technical node aesthetic.",
+    "The Forge AI component should feel like an integrated terminal overlay. Use monospace fonts for its outputs.",
+    "Implement the multi-step onboarding wizard using standard state management but make the transitions seamless. Hide standard HTML form inputs behind customized Shadcn UI elements.",
+    "Always apply optical alignment over geometric alignment. For instance, adjust padding when using icons.",
+    "All cards must have a `p-6` or `p-8` spacing and a `border-white/10`."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "Do not converge toward generic 'AI slop' outputs. Use stark contrasts and brutalist geometric alignments.",
+    "Do not apply `transition: all`. Target specific properties.",
+    "Do not center-align app containers (`text-align: center`). Left align everything except specific hero messaging.",
+    "Use pill-shaped or sharp rectangular buttons. In this app, prioritize sharp or max 4px rounded corners.",
+    "NEVER use emojis as icons. Use Lucide React or Phosphor Icons.",
+    "Every interaction needs micro-animations (hover states, focus rings).",
+    "Do not use transparent backgrounds where content scrolls underneath without a solid or heavily blurred backdrop.",
+    "Use `sonner` for toasts.",
+    "Examine and reuse existing components from `src/components/ui/` where applicable."
+  ]
+}

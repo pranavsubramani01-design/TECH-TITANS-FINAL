@@ -1,0 +1,42 @@
+{
+  "summary": "First-run testing of PathForge AI backend + frontend smoke. 51/54 backend tests pass. Auth, onboarding, CRUD (skills/academics/projects/hobbies/checkin), careers, dashboard, skill-gap, planner, forge chat/nudge, interview flow (start+follow-ups+history), authorization enforcement, and CGPA math (8.57) all verified. Real backend bug found in llm_json() parser: Claude's roadmap/profile JSON responses intermittently fail parsing (raises 502 'AI returned invalid JSON') because the parser only strips control chars but cannot fix unescaped quotes or malformed delimiters in long JSON. This blocks /api/ai/generate-profile and /api/ai/generate-roadmap on some runs. Frontend smoke: landing, signup, 12-step onboarding, interview page all render and reachable.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "/api/ai/generate-roadmap", "issue": "Intermittent 502 'AI returned invalid JSON' — llm_json() fails when Claude returns long roadmap JSON with slight formatting issues (e.g., 'Expecting , delimiter' near char 828/1306). Only strips control chars; does not repair unescaped inner quotes or missing delimiters.", "priority": "HIGH"},
+      {"endpoint": "/api/ai/generate-profile", "issue": "Same llm_json parser fragility — occasionally returns 502 when profile JSON has parse errors around char 800+.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "/api/ai/generate-profile", "issue": "When user has no interview messages and thin profile data, Claude may return career_directions=[] (empty). Consider fallback/re-prompt when zero directions."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Interview → Profile Results → Roadmap", "issue": "Not fully E2E-tested because the underlying /api/ai/generate-profile and /api/ai/generate-roadmap intermittently return 502 due to llm_json parse failures — UI 'Finish & Analyse' path will surface these as errors.", "affected_selectors": ["[data-testid=\"interview-finish\"]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_pathforge.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Harden llm_json(): (a) instruct Claude explicitly to escape quotes/newlines and keep JSON short-lined; (b) on json.loads failure, try json-repair library or a bracket-balancing/quote-fixing fallback (regex to escape stray double-quotes inside string literals) before returning 502; (c) retry the LLM call once with a stricter reminder message when parse fails.",
+    "Consider lowering max content in prompts or increasing max_tokens to avoid truncation. Char 828/1306 suggests truncated or malformed tail.",
+    "Add fallback in /api/ai/generate-profile: if returned career_directions is empty, either retry or use a minimal deterministic default so downstream flows do not break."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 669 lines — approaching the 700-line threshold; consider splitting into routers/auth.py, routers/ai.py, routers/tracker.py.",
+    "llm_json() catches JSONDecodeError then does a naive .replace('\\n',' ') pass — insufficient. Needs proper repair or an explicit JSON-mode call.",
+    "forge_chat instantiates a fresh LlmChat per message without persisting session context beyond emergentintegrations' session_id; verify that the session_id 'forge-{user_id}' is actually kept warm on their side.",
+    "get_ai_profile / get_roadmap silently return {\"profile\": None} / {\"roadmap\": None} when missing — frontend must handle null carefully (Dashboard already does).",
+    "No rate limiting on expensive AI endpoints; a user can spam /api/ai/generate-roadmap.",
+    "CORS uses '*' by default with allow_credentials=True — spec-wise browsers will reject credentialed requests to '*'. Fine for JWT-in-header but note if cookies ever used.",
+    "skill-gap endpoint boolean expression on line 614 is hard to read; refactor for clarity."
+  ],
+  "updated_files": ["/app/backend/tests/test_pathforge.py"],
+  "success_rate": {"backend": "94% (51/54)", "frontend": "smoke passed for landing/signup/onboarding/interview"},
+  "test_credentials": "Dynamically created signup accounts (uitest_*@pathforge.ai / Passw0rd!). Demo: demo.student@pathforge.ai / PathForge@2026",
+  "seed_data_creation": "None persisted; tests use per-run signup accounts and TEST_ prefixed CRUD items which are deleted in the test itself.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "pytest.ini forces -n 2 --dist loadscope. State shared via module-level STATE dict is per-worker; keep all sequential-state tests in the same class (TestAIGeneration already includes onboarding+interview seed fixture + node updates). AI endpoints called via http://localhost:8001 to bypass edge 502s. Full E2E frontend interview → profile-results was not executed because the AI JSON parser bug can 502 mid-flow — re-run after llm_json is hardened.",
+  "rca of the issue": "llm_json() in /app/backend/server.py:155 asks Claude for minified JSON, strips control chars via regex, then json.loads(strict=False). Claude occasionally emits (a) unescaped double-quotes inside string values, (b) missing commas after nested arrays, (c) truncated tails. The single fallback (replace \\n with space) does not recover these. Result: 502 with 'AI returned invalid JSON'. Fix by adding a json-repair pass (e.g. via json-repair pip pkg) and/or a one-shot retry with an explicit correction prompt, and by requesting a smaller/simpler schema per call."
+}

@@ -1,0 +1,37 @@
+{
+  "summary": "PathForge AI iteration 2 retest. Backend: 53/56 tests passed. The json-repair fix works: /api/ai/generate-profile now consistently returns >=3 career_directions (fallback re-prompt kicks in), and /api/ai/generate-roadmap returned a valid dict on all runs in TestAIGeneration. However, a NEW/uncovered edge remains: llm_json() can occasionally return a JSON array (list) at the top level for the roadmap prompt (Claude occasionally emits '[{...year...}, ...]' or just the nodes array). The server stores that list as-is and downstream /api/planner/today crashes with 500 AttributeError: 'list' object has no attribute 'get' (server.py:352). This surfaced when TestAIRepeated ran 3 consecutive generate-roadmap calls — 1 of the 3 came back as a list and poisoned the roadmap doc for TestPlanner (loadscope-pinned to same worker/user). Frontend voice + roadmap E2E: FAB is arc-reactor style, drawer opens, forge-mic / forge-voice-toggle / arc-reactor / forge-input / forge-send all present, voice-toggle toggles state correctly, text chat receives a Forge reply (~30s), roadmap list view → node-detail → START → COMPLETE fires 'Marked completed' toast, and all inner pages (/skills, /academics, /projects, /hobbies, /careers, /skill-gap) render with 0 console errors.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "/api/ai/generate-roadmap", "issue": "Non-deterministic response shape: sometimes Claude returns a top-level JSON list instead of an object with keys {target_career, years, nodes}. Server saves it verbatim, so subsequent calls to /api/planner/today (and any code doing rm.get('nodes')) crash with 500 AttributeError: 'list' object has no attribute 'get' at server.py:352. Reproduced by running generate-roadmap 3x — 1/3 came back as list.", "priority": "HIGH"},
+      {"endpoint": "/api/planner/today", "issue": "500 Internal Server Error when the stored roadmap is a list (see above). No shape validation on rm before rm.get('nodes', []).", "priority": "HIGH"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_pathforge.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "In server.py:generate_roadmap (and generate_profile), after llm_json returns, assert/coerce isinstance(result, dict); if not, wrap or retry with an explicit 'return an OBJECT with keys ...' reminder before saving to db.roadmaps.",
+    "In server.py:generate_today (line ~345), guard: `rm = rm if isinstance(rm, dict) else {}` before rm.get('nodes', []) so a poisoned roadmap doesn't 500 the planner.",
+    "Same defensive check in /api/roadmap/node (server.py:330 loops rm.get('nodes', [])) and /api/dashboard (line ~655 cp.get('career_directions')) — audit all rm.get(...) / cp.get(...) call sites.",
+    "Consider a lightweight schema validator (pydantic) on the AI response before persisting."
+  ],
+  "critical_code_review_comments": [
+    "llm_json returns raw dict from repair_json; repair_json can return a list, string, or number if the model output is malformed. Type-check the top level and reject non-dicts (or retry) inside llm_json itself.",
+    "server.py is at 682 lines — still nearing the 700-line threshold; split into routers/ modules.",
+    "generate_roadmap prompt asks for a specific top-level object shape but does not enforce it in code; if the LLM sometimes emits only the nodes array, everything downstream breaks silently until the next endpoint call.",
+    "planner endpoint has no fallback when roadmap is missing/invalid — it should still generate a plan from profile+skills instead of crashing.",
+    "Same session_id 'roadmap-{user['id']}' is reused across regenerations — with continuous conversation history the model may drift toward malformed shapes; consider adding a timestamp suffix or clearing session on regenerate."
+  ],
+  "updated_files": ["/app/backend/tests/test_pathforge.py"],
+  "success_rate": {"backend": "94.6% (53/56)", "frontend": "100% for tested flows (login, dashboard, forge drawer + voice UI selectors, roadmap list→node→start→complete, 6 inner pages render clean)"},
+  "test_credentials": "demo.student@pathforge.ai / PathForge@2026 (used for frontend E2E). Backend tests self-signup a fresh user per session.",
+  "seed_data_creation": "None persisted. Test-only signup users and TEST_ prefixed CRUD data (auto-deleted by tests).",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "New regression class TestAIRepeated added (generate-roadmap x3, generate-profile x2). Failure mode is now stochastic AI response SHAPE (list vs dict), not JSON parsing. Fix must coerce/reject non-dict AI results before persisting to db.roadmaps. After fix, rerun `pytest backend/tests/test_pathforge.py::TestAIRepeated backend/tests/test_pathforge.py::TestPlanner -v` at minimum. AI calls hit http://localhost:8001 with 180s timeout to avoid edge 502.",
+  "rca of the issue": "Claude Sonnet 4.6 occasionally returns a top-level JSON array for the roadmap prompt (either the years array or the nodes array). json-repair happily parses that into a python list. server.py:generate_roadmap does `result = await llm_json(...)` then persists `roadmap: result` without validating that result is a dict with target_career/years/nodes. When any subsequent request (planner, node update, dashboard) does rm.get('nodes', []), Python raises AttributeError → FastAPI 500. Mitigation: (a) validate top-level type == dict and required keys present inside llm_json OR in the endpoint; (b) if invalid, retry the llm_json call once with a stricter 'MUST be a JSON OBJECT with keys target_career, years, nodes' reminder; (c) also defensively guard rm = rm if isinstance(rm, dict) else {} in every reader endpoint."
+}
